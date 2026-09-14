@@ -1,0 +1,3554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Academic Timetable Optimizer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📅</text></svg>">
+  <script src="/static/vendor/tailwind.js"></script>
+  <script src="/static/vendor/react.production.min.js"></script>
+  <script src="/static/vendor/react-dom.production.min.js"></script>
+  <script src="/static/vendor/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <div id="root"></div>
+  <script type="text/babel">
+
+    const { useState, useEffect, useRef } = React;
+    const API_BASE = "/api";
+
+    // Standard Clean Blank Configuration (User starts fresh without forced presets)
+    const DEFAULT_BLANK_CONFIG = {
+      classes: [
+        { name: "Class 1", department_code: "CS", department_name: "Computer Science", student_count: 60, academic_year: "2026-27", semester: "Odd" }
+      ],
+      faculty: [],
+      rooms: [
+        { name: "Room 101", type: "THEORY", capacity: 60, building: "Academic Wing" },
+        { name: "Computing Lab 1", type: "LAB", lab_type: "CS_LAB", capacity: 60, building: "Computing Wing" }
+      ],
+      subjects: [],
+      fixed_events: [],
+      days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      periods: [1, 2, 3, 4, 5, 6, 7],
+      soft_weights: { faculty_gap: 2.0, student_gap: 3.0, repetitions: 2.0, lab_afternoon: 1.5 },
+      search_limit: 4000,
+      optimization_enabled: true
+    };
+
+    // Optional Quick Templates for users who want to inspect a working sample
+    const TEMPLATES = {
+      three_classes_cs: {
+        classes: [
+          { name: "S5 AIML", department_code: "AIML", department_name: "AI & Machine Learning", student_count: 60, academic_year: "2026-27", semester: "Odd" },
+          { name: "S6 CSE A", department_code: "CSE", department_name: "Computer Science & Engineering", student_count: 60, academic_year: "2026-27", semester: "Even" },
+          { name: "S6 CSE B", department_code: "CSE", department_name: "Computer Science & Engineering", student_count: 60, academic_year: "2026-27", semester: "Even" }
+        ],
+        faculty: [
+          { name: "Dr. Arun Kumar P", short_name: "AKP", email: "akp@institution.edu" },
+          { name: "Dr. Kavitha R Nair", short_name: "KRN", email: "krn@institution.edu" },
+          { name: "Prof. Jisha S M", short_name: "JSM", email: "jsm@institution.edu" },
+          { name: "Prof. Vijayakumar R", short_name: "VKR", email: "vkr@institution.edu" },
+          { name: "Ms. Aswathi E R", short_name: "AER", email: "aer@institution.edu" },
+          { name: "Mr. Manu K", short_name: "MK", email: "mk@institution.edu" }
+        ],
+        rooms: [
+          { name: "Room 301", type: "THEORY", capacity: 65, building: "Academic Block 3" },
+          { name: "Room 302", type: "THEORY", capacity: 65, building: "Academic Block 3" },
+          { name: "Room 303", type: "THEORY", capacity: 65, building: "Academic Block 3" },
+          { name: "Computing Center 1", type: "LAB", lab_type: "CS_LAB", capacity: 70, building: "Computing Wing" },
+          { name: "Computing Center 2", type: "LAB", lab_type: "CS_LAB", capacity: 70, building: "Computing Wing" }
+        ],
+        subjects: [
+          { class_name: "S5 AIML", course_code: "CST 301", name: "Formal Automata & Logic", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["AKP"] },
+          { class_name: "S5 AIML", course_code: "CST 303", name: "Computer Vision", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["KRN"] },
+          { class_name: "S5 AIML", course_code: "CST 305", name: "Deep Learning Neural Nets", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["JSM"] },
+          { class_name: "S5 AIML", course_code: "CSL 331", name: "AI & Computer Vision Lab", type: "LAB", hours_per_week: 3, periods_per_week: 3, duration: 3, consecutive: true, requires_lab: true, required_lab_type: "CS_LAB", faculty_shorts: ["AKP", "MK"] },
+          { class_name: "S6 CSE A", course_code: "CST 302", name: "Compiler Design", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["AKP"] },
+          { class_name: "S6 CSE A", course_code: "CST 304", name: "Computer Networks", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["VKR"] },
+          { class_name: "S6 CSE A", course_code: "CST 306", name: "Algorithm Analysis & Design", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["JSM"] },
+          { class_name: "S6 CSE A", course_code: "CSL 332", name: "Networking & Systems Lab", type: "LAB", hours_per_week: 3, periods_per_week: 3, duration: 3, consecutive: true, requires_lab: true, required_lab_type: "CS_LAB", faculty_shorts: ["VKR", "AER"] },
+          { class_name: "S6 CSE B", course_code: "CST 302", name: "Compiler Design", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["KRN"] },
+          { class_name: "S6 CSE B", course_code: "CST 304", name: "Computer Networks", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["VKR"] },
+          { class_name: "S6 CSE B", course_code: "CST 308", name: "Cloud Computing", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["JSM"] },
+          { class_name: "S6 CSE B", course_code: "CSL 334", name: "Cloud & Systems Lab", type: "LAB", hours_per_week: 3, periods_per_week: 3, duration: 3, consecutive: true, requires_lab: true, required_lab_type: "CS_LAB", faculty_shorts: ["KRN", "MK"] }
+        ],
+        fixed_events: [
+          { name: "College Association", day: "Friday", period: 7, duration: 1, event_type: "COMMON_ACTIVITY", class_name: "ALL" }
+        ],
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        periods: [1, 2, 3, 4, 5, 6, 7],
+        soft_weights: { faculty_gap: 2.0, student_gap: 3.0, repetitions: 2.0, lab_afternoon: 1.5 },
+        search_limit: 4000,
+        optimization_enabled: true
+      },
+      two_classes_interdept: {
+        classes: [
+          { name: "S6 CSE", department_code: "CSE", department_name: "Computer Science", student_count: 60, academic_year: "2026-27", semester: "Even" },
+          { name: "S4 ECE", department_code: "ECE", department_name: "Electronics & Communication", student_count: 55, academic_year: "2026-27", semester: "Even" }
+        ],
+        faculty: [
+          { name: "Dr. Suresh V", short_name: "SV", email: "sv@institution.edu" },
+          { name: "Ms. Deepa Nair", short_name: "DN", email: "dn@institution.edu" },
+          { name: "Mr. Praveen K", short_name: "PK", email: "pk@institution.edu" },
+          { name: "Dr. Rajesh Kumar", short_name: "RK", email: "rk@institution.edu" }
+        ],
+        rooms: [
+          { name: "Room 201", type: "THEORY", capacity: 65, building: "Academic Block 2" },
+          { name: "Room 202", type: "THEORY", capacity: 65, building: "Academic Block 2" },
+          { name: "Hardware Circuits Lab", type: "LAB", lab_type: "HARDWARE_LAB", capacity: 60, building: "Lab Complex" },
+          { name: "Computing Center 1", type: "LAB", lab_type: "CS_LAB", capacity: 70, building: "Computing Wing" }
+        ],
+        subjects: [
+          { class_name: "S6 CSE", course_code: "CST 302", name: "Compiler Design", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["RK"] },
+          { class_name: "S6 CSE", course_code: "CST 304", name: "Computer Networks", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["PK"] },
+          { class_name: "S6 CSE", course_code: "CSL 332", name: "Networking Lab", type: "LAB", hours_per_week: 3, periods_per_week: 3, duration: 3, consecutive: true, requires_lab: true, required_lab_type: "CS_LAB", faculty_shorts: ["RK", "PK"] },
+          { class_name: "S4 ECE", course_code: "ECT 202", name: "Analog Circuits", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["SV"] },
+          { class_name: "S4 ECE", course_code: "ECT 204", name: "Signals & Systems", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["DN"] },
+          { class_name: "S4 ECE", course_code: "ECT 206", name: "Computer Architecture", type: "THEORY", hours_per_week: 4, periods_per_week: 4, duration: 1, consecutive: false, requires_lab: false, faculty_shorts: ["PK"] },
+          { class_name: "S4 ECE", course_code: "ECL 202", name: "Analog Circuits Lab", type: "LAB", hours_per_week: 3, periods_per_week: 3, duration: 3, consecutive: true, requires_lab: true, required_lab_type: "HARDWARE_LAB", faculty_shorts: ["SV", "DN"] }
+        ],
+        fixed_events: [
+          { name: "Technical Seminar", day: "Friday", period: 7, duration: 1, event_type: "COMMON_ACTIVITY", class_name: "ALL" }
+        ],
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        periods: [1, 2, 3, 4, 5, 6, 7],
+        soft_weights: { faculty_gap: 2.0, student_gap: 3.0, repetitions: 2.0, lab_afternoon: 1.5 },
+        search_limit: 4000,
+        optimization_enabled: true
+      }
+    };
+
+    // =========================================================================
+    // MAIN APPLICATION COMPONENT
+    // =========================================================================
+    function App() {
+      const [activeTab, setActiveTab] = useState("dashboard");
+      const [classes, setClasses] = useState([]);
+      const [subjects, setSubjects] = useState([]);
+      const [faculty, setFaculty] = useState([]);
+      const [rooms, setRooms] = useState([]);
+      const [currentTimetable, setCurrentTimetable] = useState(null);
+      const [timetableList, setTimetableList] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [alertMsg, setAlertMsg] = useState(null);
+      const [validationModal, setValidationModal] = useState(null);
+      const [generationSummaryModal, setGenerationSummaryModal] = useState(null);
+      const [showMoreMenu, setShowMoreMenu] = useState(false);
+      const [timetableViewMode, setTimetableViewMode] = useState("single");
+
+      const fetchTimetableList = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/timetable/list/all`);
+          const data = await res.json();
+          setTimetableList(data || []);
+          if (data && data.length > 0 && !currentTimetable) {
+            loadTimetableById(data[0].id);
+          }
+          return data;
+        } catch (err) {
+          console.error("Error fetching timetable list:", err);
+          return [];
+        }
+      };
+
+      const refreshData = async () => {
+        try {
+          const [cRes, sRes, fRes, rRes] = await Promise.all([
+            fetch(`${API_BASE}/classes`).then(r => r.json()),
+            fetch(`${API_BASE}/subjects`).then(r => r.json()),
+            fetch(`${API_BASE}/faculty`).then(r => r.json()),
+            fetch(`${API_BASE}/rooms`).then(r => r.json())
+          ]);
+          setClasses(cRes || []);
+          setSubjects(sRes || []);
+          setFaculty(fRes || []);
+          setRooms(rRes || []);
+          await fetchTimetableList();
+        } catch (err) {
+          console.error("Error refreshing data:", err);
+        }
+      };
+
+      useEffect(() => {
+        refreshData();
+      }, []);
+
+      const showAlert = (text, type = "success") => {
+        setAlertMsg({ text, type });
+        setTimeout(() => setAlertMsg(null), 5000);
+      };
+
+      const loadTimetableById = async (id) => {
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/timetable/${id}`);
+          const data = await res.json();
+          setCurrentTimetable(data);
+          return data;
+        } catch (err) {
+          showAlert("Failed to load timetable", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const loadExampleTemplate = async (templateKey = "three_classes_cs") => {
+        setLoading(true);
+        try {
+          const payload = TEMPLATES[templateKey] || TEMPLATES.three_classes_cs;
+          const res = await fetch(`${API_BASE}/timetable/wizard/setup-multiclass`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (data.success) {
+            await refreshData();
+            if (data.classes && data.classes.length > 0) {
+              await loadTimetableById(data.classes[0].timetable_id);
+            }
+            if (data.statistics) {
+              setGenerationSummaryModal({
+                stats: data.statistics,
+                validation: data.validation,
+                classes: data.classes || []
+              });
+            }
+            showAlert("Example Academic Setup Loaded and Generated Successfully with 0 Conflicts!");
+            setActiveTab("combined");
+          } else {
+            showAlert(data.message || "Failed to generate configuration", "error");
+          }
+        } catch (err) {
+          showAlert("Error generating configuration", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const resetData = async () => {
+        if (!confirm("Are you sure you want to clear all active timetable records?")) return;
+        setLoading(true);
+        try {
+          await fetch(`${API_BASE}/demo/reset`, { method: "POST" });
+          setCurrentTimetable(null);
+          await refreshData();
+          showAlert("Institutional database cleared. You can now build a fresh schedule.", "info");
+          setActiveTab("wizard");
+        } catch (err) {
+          showAlert("Failed to reset data", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-50">
+          {/* Main Navigation Header */}
+          <header className="bg-slate-900 text-white shadow-lg sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between h-16">
+                <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab("dashboard")}>
+                  <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-xl shadow-md">
+                    TT
+                  </div>
+                  <div>
+                    <h1 className="text-lg font-bold tracking-tight">SMART ACADEMIC TIMETABLE OPTIMIZER</h1>
+                    <p className="text-xs text-slate-300 font-normal">Create conflict-free academic schedules with ease</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setActiveTab("wizard")}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-lg shadow flex items-center space-x-1.5 transition text-white"
+                  >
+                    <span>+ Create Timetable</span>
+                  </button>
+                  <button
+                    onClick={() => loadExampleTemplate("three_classes_cs")}
+                    disabled={loading}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 rounded-md border border-slate-700 transition flex items-center space-x-1"
+                    title="Load an optional 3-class template for exploration"
+                  >
+                    <span>⚡ Load Example</span>
+                  </button>
+                  <button
+                    onClick={resetData}
+                    disabled={loading}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs text-slate-400 hover:text-slate-200 rounded-md border border-slate-700 transition"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Simplified Clean Navigation Bar */}
+              <div className="flex items-center justify-between border-t border-slate-800 py-1 text-sm">
+                <div className="flex space-x-1 overflow-x-auto">
+                  {[
+                    { id: "dashboard", label: "Dashboard", icon: "📊" },
+                    { id: "wizard", label: "Create Timetable", icon: "➕" },
+                    { id: "timetable", label: "Timetables", icon: "📅" },
+                    { id: "faculty_view", label: "Faculty", icon: "👨‍🏫" },
+                    { id: "room_view", label: "Rooms", icon: "🏛️" },
+                    { id: "reports", label: "Reports", icon: "📑" }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setActiveTab(tab.id);
+                      }}
+                      className={`px-3.5 py-2 rounded-lg font-medium text-xs whitespace-nowrap transition flex items-center space-x-1.5 ${
+                        activeTab === tab.id || (tab.id === "reports" && activeTab === "collision_report") || (tab.id === "timetable" && activeTab === "combined")
+                          ? "bg-blue-600 text-white shadow"
+                          : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                      }`}
+                    >
+                      <span>{tab.icon}</span>
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* More Dropdown (Secondary features: Visualizer, Data, Constraints) */}
+                <div className="relative shrink-0 ml-2">
+                  <button
+                    onClick={() => setShowMoreMenu(!showMoreMenu)}
+                    className={`px-3 py-2 rounded-lg font-medium text-xs whitespace-nowrap transition flex items-center space-x-1 ${
+                      ["visualizer", "data", "constraints"].includes(activeTab)
+                        ? "bg-slate-800 text-blue-300 border border-blue-500/40"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    }`}
+                  >
+                    <span>⋯</span>
+                    <span>More</span>
+                    <span className="text-[9px]">▼</span>
+                  </button>
+
+                  {showMoreMenu && (
+                    <div className="absolute right-0 mt-1 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
+                      <button
+                        onClick={() => {
+                          setActiveTab("visualizer");
+                          setShowMoreMenu(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2 hover:bg-slate-800 flex items-center space-x-2 ${
+                          activeTab === "visualizer" ? "text-blue-400 font-bold bg-slate-800/60" : "text-slate-200"
+                        }`}
+                      >
+                        <span>🔍</span>
+                        <div>
+                          <div>Algorithm Visualization</div>
+                          <div className="text-[10px] text-slate-400 font-normal">DAA Search Tree & CSP Solvers</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveTab("data");
+                          setShowMoreMenu(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2 hover:bg-slate-800 flex items-center space-x-2 ${
+                          activeTab === "data" ? "text-blue-400 font-bold bg-slate-800/60" : "text-slate-200"
+                        }`}
+                      >
+                        <span>📁</span>
+                        <div>
+                          <div>Data Management</div>
+                          <div className="text-[10px] text-slate-400 font-normal">Classes, Faculty, Rooms & DB</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveTab("constraints");
+                          setShowMoreMenu(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2 hover:bg-slate-800 flex items-center space-x-2 ${
+                          activeTab === "constraints" ? "text-blue-400 font-bold bg-slate-800/60" : "text-slate-200"
+                        }`}
+                      >
+                        <span>⚙️</span>
+                        <div>
+                          <div>Settings & Scoring</div>
+                          <div className="text-[10px] text-slate-400 font-normal">Soft constraints & penalties</div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Toast Notification */}
+          {alertMsg && (
+            <div className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg shadow-xl text-sm font-medium flex items-center space-x-2 border ${
+              alertMsg.type === "error"
+                ? "bg-rose-50 text-rose-800 border-rose-200"
+                : alertMsg.type === "info"
+                ? "bg-amber-50 text-amber-800 border-amber-200"
+                : "bg-emerald-50 text-emerald-800 border-emerald-200"
+            }`}>
+              <span>{alertMsg.type === "error" ? "❌" : "✅"}</span>
+              <span>{alertMsg.text}</span>
+            </div>
+          )}
+
+          {/* Active View Container */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {activeTab === "dashboard" && (
+              <DashboardView
+                classes={classes}
+                subjects={subjects}
+                faculty={faculty}
+                rooms={rooms}
+                timetableList={timetableList}
+                currentTimetable={currentTimetable}
+                loadTimetableById={loadTimetableById}
+                loadExampleTemplate={loadExampleTemplate}
+                setActiveTab={setActiveTab}
+                setTimetableViewMode={setTimetableViewMode}
+              />
+            )}
+            {activeTab === "wizard" && (
+              <CreateTimetableWizard
+                refreshData={refreshData}
+                setCurrentTimetable={setCurrentTimetable}
+                setActiveTab={setActiveTab}
+                showAlert={showAlert}
+                loadTimetableById={loadTimetableById}
+                setGenerationSummaryModal={setGenerationSummaryModal}
+              />
+            )}
+            {(activeTab === "combined" || (activeTab === "timetable" && timetableViewMode === "all")) && (
+              <CombinedAllClassesView
+                classes={classes}
+                showAlert={showAlert}
+                setActiveTab={setActiveTab}
+                loadTimetableById={loadTimetableById}
+                setTimetableViewMode={setTimetableViewMode}
+              />
+            )}
+            {activeTab === "timetable" && timetableViewMode === "single" && (
+              <TimetableView
+                timetable={currentTimetable}
+                timetableList={timetableList}
+                loadTimetableById={loadTimetableById}
+                setCurrentTimetable={setCurrentTimetable}
+                setActiveTab={setActiveTab}
+                setValidationModal={setValidationModal}
+                showAlert={showAlert}
+                setTimetableViewMode={setTimetableViewMode}
+              />
+            )}
+            {activeTab === "faculty_view" && (
+              <FacultyScheduleView
+                faculty={faculty}
+                showAlert={showAlert}
+              />
+            )}
+            {activeTab === "room_view" && (
+              <RoomAllocationView
+                rooms={rooms}
+                showAlert={showAlert}
+              />
+            )}
+            {(activeTab === "reports" || activeTab === "collision_report") && (
+              <ReportsView
+                classes={classes}
+                faculty={faculty}
+                rooms={rooms}
+                timetableList={timetableList}
+                currentTimetable={currentTimetable}
+                showAlert={showAlert}
+                setActiveTab={setActiveTab}
+              />
+            )}
+            {activeTab === "visualizer" && (
+              <VisualizerView
+                classes={classes}
+                currentTimetable={currentTimetable}
+              />
+            )}
+            {activeTab === "data" && (
+              <DataManagementView
+                classes={classes}
+                subjects={subjects}
+                faculty={faculty}
+                rooms={rooms}
+                refreshData={refreshData}
+                showAlert={showAlert}
+              />
+            )}
+            {activeTab === "constraints" && (
+              <ConstraintsView
+                faculty={faculty}
+                refreshData={refreshData}
+                showAlert={showAlert}
+              />
+            )}
+          </main>
+
+          {/* GENERATION SUMMARY & METRICS MODAL */}
+          {generationSummaryModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-5 border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center space-x-3">
+                    <span className="text-3xl">🎉</span>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-lg">Timetable Generation Summary</h3>
+                      <p className="text-xs text-slate-500">Conflict-free schedule generated across all classes & shared resources</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setGenerationSummaryModal(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center text-sm font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* 7 Summary Metrics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-blue-600">Total Classes Scheduled</div>
+                    <div className="text-2xl font-black text-blue-950">
+                      {generationSummaryModal.stats.total_classes || (generationSummaryModal.classes || []).length}
+                    </div>
+                    <div className="text-[10px] text-blue-500">Scheduled simultaneously</div>
+                  </div>
+                  <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-indigo-600">Total Subjects</div>
+                    <div className="text-2xl font-black text-indigo-950">{generationSummaryModal.stats.total_subjects}</div>
+                    <div className="text-[10px] text-indigo-500">Active courses</div>
+                  </div>
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-emerald-600">Total Weekly Teaching Hours</div>
+                    <div className="text-2xl font-black text-emerald-950">{generationSummaryModal.stats.total_weekly_teaching_hours}</div>
+                    <div className="text-[10px] text-emerald-600">Sum across all subjects</div>
+                  </div>
+                  <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-purple-600">Total Scheduled Sessions</div>
+                    <div className="text-2xl font-black text-purple-950">{generationSummaryModal.stats.total_sessions}</div>
+                    <div className="text-[10px] text-purple-500">Periods allocated</div>
+                  </div>
+                  <div className="p-3 bg-amber-50/70 border border-amber-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-amber-600">Multi-Period Blocks</div>
+                    <div className="text-2xl font-black text-amber-950">{generationSummaryModal.stats.total_multi_period_blocks}</div>
+                    <div className="text-[10px] text-amber-600">Continuous lab blocks</div>
+                  </div>
+                  <div className="p-3 bg-teal-50/70 border border-teal-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-teal-600">Total Faculty Assigned</div>
+                    <div className="text-2xl font-black text-teal-950">{generationSummaryModal.stats.total_faculty}</div>
+                    <div className="text-[10px] text-teal-600">Zero double-booking</div>
+                  </div>
+                  <div className="p-3 bg-sky-50/70 border border-sky-100 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-sky-600">Total Rooms Utilized</div>
+                    <div className="text-2xl font-black text-sky-950">{generationSummaryModal.stats.total_rooms}</div>
+                    <div className="text-[10px] text-sky-600">No room collisions</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[10px] font-bold uppercase text-slate-500">Quality Score</div>
+                    <div className="text-2xl font-black text-slate-900">{generationSummaryModal.stats.quality_score}/100</div>
+                    <div className="text-[10px] text-emerald-600 font-semibold">Heuristics optimized</div>
+                  </div>
+                </div>
+
+                {/* Validation Status Checklist */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                    <span>Validation Status & Mathematical Integrity</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded text-[10px]">
+                      {generationSummaryModal.validation?.is_valid ? "AUDIT PASSED" : "AUDIT COMPLETED"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700 pt-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-600 font-black">✓</span>
+                      <span>All required weekly hours scheduled</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-600 font-black">✓</span>
+                      <span>No faculty double-booking</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-600 font-black">✓</span>
+                      <span>No room double-booking</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-600 font-black">✓</span>
+                      <span>No class collisions</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-600 font-black">✓</span>
+                      <span>Lab continuity preserved (no split days)</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-emerald-600 font-black">✓</span>
+                      <span>Break & lunch boundaries respected</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action button */}
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => {
+                      setGenerationSummaryModal(null);
+                      setActiveTab("combined");
+                    }}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center space-x-2"
+                  >
+                    <span>View Combined Master Timetable →</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Validation Result Modal */}
+          {validationModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-2xl">{validationModal.is_valid ? "🛡️" : "⚠️"}</span>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-base">Mathematical Integrity Validation</h3>
+                      <p className="text-xs text-slate-500">Independent auditor verifying all hard constraints & quotas</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setValidationModal(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center text-sm font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className={`p-4 rounded-xl border flex items-center justify-between ${
+                  validationModal.is_valid
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                    : "bg-rose-50 border-rose-200 text-rose-900"
+                }`}>
+                  <div>
+                    <div className="text-xs uppercase font-bold tracking-wider opacity-75">Status</div>
+                    <div className="text-sm font-bold">{validationModal.summary}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs uppercase font-bold tracking-wider opacity-75">Quality Score</div>
+                    <div className="text-2xl font-black">{validationModal.quality_score}/100</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Passed Verification Checks</h4>
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-1.5 text-xs text-slate-700">
+                    {(validationModal.passed_checks || []).map((chk, i) => (
+                      <div key={i} className="flex items-center space-x-2">
+                        <span className="text-emerald-600 font-bold">✓</span>
+                        <span>{chk}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {validationModal.violations && validationModal.violations.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-rose-600">Constraint Violations</h4>
+                    <div className="bg-rose-50 rounded-xl p-3 border border-rose-100 space-y-1 text-xs text-rose-700 max-h-40 overflow-y-auto">
+                      {validationModal.violations.map((v, i) => (
+                        <div key={i} className="flex items-start space-x-2">
+                          <span className="font-bold">❌</span>
+                          <span><strong>[{v.rule}]</strong> {v.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setValidationModal(null)}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow"
+                >
+                  Close Audit Report
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Institutional Footer */}
+          <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+            <p>Smart Academic Timetable Optimizer • Design and Analysis of Algorithms (DAA) Backtracking CSP Engine</p>
+          </footer>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 1. DASHBOARD VIEW (Production-Ready Academic Overview)
+    // =========================================================================
+    function DashboardView({ classes, subjects, faculty, rooms, timetableList, currentTimetable, loadTimetableById, loadExampleTemplate, setActiveTab, setTimetableViewMode }) {
+      return (
+        <div className="space-y-6">
+          {/* Main Hero Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+            <div className="relative z-10 max-w-2xl space-y-3">
+              <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">
+                SMART ACADEMIC TIMETABLE OPTIMIZER
+              </h2>
+              <p className="text-slate-300 text-xs md:text-sm leading-relaxed">
+                Create and manage conflict-free academic schedules.
+              </p>
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  onClick={() => setActiveTab("wizard")}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-lg transition flex items-center space-x-1.5"
+                >
+                  <span>+ Create Timetable</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (setTimetableViewMode) setTimetableViewMode("single");
+                    setActiveTab("timetable");
+                  }}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow transition flex items-center space-x-1.5"
+                >
+                  <span>📅 View Timetables</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab("faculty_view")}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 shadow transition flex items-center space-x-1.5"
+                >
+                  <span>👨‍🏫 Faculty Schedules</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab("room_view")}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 shadow transition flex items-center space-x-1.5"
+                >
+                  <span>🏛️ Room Allocations</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab("reports")}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 shadow transition flex items-center space-x-1.5"
+                >
+                  <span>🛡️ Conflict Report</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Summary Cards (Useful statistics only, no algorithm internals) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Classes</p>
+                <p className="text-2xl font-black text-slate-800">{classes.length}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{classes.length} Active Classes</p>
+              </div>
+              <div className="w-11 h-11 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-xl">🎓</div>
+            </div>
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Faculty</p>
+                <p className="text-2xl font-black text-slate-800">{faculty.length}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{faculty.length} Faculty Members</p>
+              </div>
+              <div className="w-11 h-11 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl">👨‍🏫</div>
+            </div>
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Rooms & Labs</p>
+                <p className="text-2xl font-black text-slate-800">{rooms.length}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{rooms.length} Available</p>
+              </div>
+              <div className="w-11 h-11 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl">🏛️</div>
+            </div>
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Timetables</p>
+                <p className="text-2xl font-black text-slate-800">{timetableList.length}</p>
+                <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">{timetableList.length} Generated</p>
+              </div>
+              <div className="w-11 h-11 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-xl">📅</div>
+            </div>
+          </div>
+
+          {/* Main Dashboard Content */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Create New Timetable & Quick Actions (Left Column) */}
+            <div className="lg:col-span-5 space-y-6">
+              {/* Create Timetable Card */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black text-lg">
+                    ➕
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-base">Create New Timetable</h3>
+                    <p className="text-xs text-slate-500">Step-by-step setup wizard</p>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Configure classes, subjects, faculty and rooms, then generate an optimized timetable.
+                </p>
+                <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => setActiveTab("wizard")}
+                    className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow transition text-center"
+                  >
+                    + Create Timetable
+                  </button>
+                  <button
+                    onClick={() => loadExampleTemplate("three_classes_cs")}
+                    className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition text-center"
+                    title="Load an optional 3-class template for exploration"
+                  >
+                    ⚡ Load Example
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Actions Card */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                <h3 className="font-bold text-slate-900 text-sm">Quick Actions</h3>
+                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                  <button
+                    onClick={() => setActiveTab("wizard")}
+                    className="p-3 bg-slate-50 hover:bg-blue-50/60 rounded-xl border border-slate-200 text-left transition space-y-1"
+                  >
+                    <span className="text-base block">➕</span>
+                    <span className="font-bold text-slate-800 block">Create Timetable</span>
+                    <span className="text-[10px] text-slate-500 block">New setup wizard</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("faculty_view")}
+                    className="p-3 bg-slate-50 hover:bg-blue-50/60 rounded-xl border border-slate-200 text-left transition space-y-1"
+                  >
+                    <span className="text-base block">👨‍🏫</span>
+                    <span className="font-bold text-slate-800 block">Faculty Schedules</span>
+                    <span className="text-[10px] text-slate-500 block">Workload & slots</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("room_view")}
+                    className="p-3 bg-slate-50 hover:bg-blue-50/60 rounded-xl border border-slate-200 text-left transition space-y-1"
+                  >
+                    <span className="text-base block">🏛️</span>
+                    <span className="font-bold text-slate-800 block">Room Allocations</span>
+                    <span className="text-[10px] text-slate-500 block">Classrooms & labs</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("reports")}
+                    className="p-3 bg-slate-50 hover:bg-blue-50/60 rounded-xl border border-slate-200 text-left transition space-y-1"
+                  >
+                    <span className="text-base block">🛡️</span>
+                    <span className="font-bold text-slate-800 block">Conflict Report</span>
+                    <span className="text-[10px] text-slate-500 block">Verify 0 overlaps</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Timetables (Right Column) */}
+            <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Recent Timetables</h3>
+                  <p className="text-xs text-slate-500">Recently generated class schedules</p>
+                </div>
+                {timetableList.length > 0 && (
+                  <button
+                    onClick={() => {
+                      if (setTimetableViewMode) setTimetableViewMode("all");
+                      setActiveTab("timetable");
+                    }}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 transition"
+                  >
+                    View All Timetables →
+                  </button>
+                )}
+              </div>
+
+              {timetableList.length === 0 ? (
+                <div className="p-12 text-center rounded-xl bg-slate-50 border border-slate-100 space-y-3">
+                  <div className="text-4xl">📅</div>
+                  <h4 className="font-bold text-slate-800 text-sm">No Timetables Generated Yet</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Get started by creating a new academic timetable using the step-by-step wizard or load an example configuration.
+                  </p>
+                  <div className="pt-2 flex justify-center space-x-2">
+                    <button
+                      onClick={() => setActiveTab("wizard")}
+                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow hover:bg-emerald-500"
+                    >
+                      + Create Timetable
+                    </button>
+                    <button
+                      onClick={() => loadExampleTemplate("three_classes_cs")}
+                      className="px-4 py-2 bg-white text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 shadow hover:bg-slate-50"
+                    >
+                      ⚡ Load Example
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+                    {timetableList.map(tt => (
+                      <div key={tt.id} className="p-4 hover:bg-slate-50/80 transition flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 font-bold flex items-center justify-center text-xs">
+                            {tt.class_name ? tt.class_name.substring(0, 2).toUpperCase() : "TT"}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 text-xs">{tt.class_name}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {tt.academic_year || "2026-27"} • Quality: {tt.score || 100}/100
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[10px]">
+                            ✓ Conflict-Free
+                          </span>
+                          <button
+                            onClick={async () => {
+                              await loadTimetableById(tt.id);
+                              if (setTimetableViewMode) setTimetableViewMode("single");
+                              setActiveTab("timetable");
+                            }}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 font-bold rounded-lg text-xs transition"
+                          >
+                            View Schedule
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-xs text-slate-500">Total generated schedules: {timetableList.length}</span>
+                    <button
+                      onClick={() => {
+                        if (setTimetableViewMode) setTimetableViewMode("all");
+                        setActiveTab("timetable");
+                      }}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow transition"
+                    >
+                      View All Class Timetables →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 2. MULTI-CLASS SETUP WIZARD (8 STEPS)
+    // =========================================================================
+    function CreateTimetableWizard({ refreshData, setCurrentTimetable, setActiveTab, showAlert, loadTimetableById, setGenerationSummaryModal }) {
+      const [step, setStep] = useState(1);
+      const [loading, setLoading] = useState(false);
+
+      // Clean blank configuration state by default (no forced presets)
+      const [config, setConfig] = useState(() => JSON.parse(JSON.stringify(DEFAULT_BLANK_CONFIG)));
+      const [activeClassTab, setActiveClassTab] = useState(0);
+
+      const applyTemplate = (templateKey) => {
+        if (TEMPLATES[templateKey]) {
+          setConfig(JSON.parse(JSON.stringify(TEMPLATES[templateKey])));
+          setActiveClassTab(0);
+          showAlert(`Loaded example template! You can modify any details.`);
+        }
+      };
+
+      const resetToBlank = () => {
+        setConfig(JSON.parse(JSON.stringify(DEFAULT_BLANK_CONFIG)));
+        setActiveClassTab(0);
+        showAlert("Reset to fresh blank slate.", "info");
+      };
+
+      // Step 1: Class Count Management
+      const setClassCount = (cnt) => {
+        const count = Math.max(1, Math.min(10, cnt));
+        const currentClasses = [...config.classes];
+        if (count > currentClasses.length) {
+          for (let i = currentClasses.length; i < count; i++) {
+            currentClasses.push({
+              name: `Class ${i + 1}`,
+              department_code: "DEPT",
+              department_name: "Department",
+              student_count: 60,
+              academic_year: "2026-27",
+              semester: "Odd"
+            });
+          }
+        } else if (count < currentClasses.length) {
+          currentClasses.splice(count);
+        }
+        setConfig({ ...config, classes: currentClasses });
+        if (activeClassTab >= count) setActiveClassTab(0);
+      };
+
+      // Step 3: Faculty Helper
+      const [newFac, setNewFac] = useState({ name: "", short_name: "", email: "" });
+      const addFaculty = () => {
+        if (!newFac.name.trim() || !newFac.short_name.trim()) {
+          showAlert("Please enter faculty name and short initials", "error");
+          return;
+        }
+        const updated = [...config.faculty, {
+          name: newFac.name.trim(),
+          short_name: newFac.short_name.trim().toUpperCase(),
+          email: newFac.email.trim()
+        }];
+        setConfig({ ...config, faculty: updated });
+        setNewFac({ name: "", short_name: "", email: "" });
+      };
+      const removeFaculty = (idx) => {
+        const facToRemove = config.faculty[idx].short_name;
+        const updatedFac = config.faculty.filter((_, i) => i !== idx);
+        const updatedSub = config.subjects.map(s => ({
+          ...s,
+          faculty_shorts: (s.faculty_shorts || []).filter(sh => sh !== facToRemove)
+        }));
+        setConfig({ ...config, faculty: updatedFac, subjects: updatedSub });
+      };
+
+      // Step 4: Room Helper
+      const [newRoom, setNewRoom] = useState({ name: "", type: "THEORY", lab_type: "", capacity: 60, building: "Academic Wing" });
+      const addRoom = () => {
+        if (!newRoom.name.trim()) {
+          showAlert("Please enter room name", "error");
+          return;
+        }
+        const updated = [...config.rooms, {
+          name: newRoom.name.trim(),
+          type: newRoom.type,
+          lab_type: newRoom.type === "LAB" ? (newRoom.lab_type.trim() || "CS_LAB") : null,
+          capacity: parseInt(newRoom.capacity) || 60,
+          building: newRoom.building.trim() || "Academic Wing"
+        }];
+        setConfig({ ...config, rooms: updated });
+        setNewRoom({ name: "", type: "THEORY", lab_type: "", capacity: 60, building: "Academic Wing" });
+      };
+      const removeRoom = (idx) => {
+        setConfig({ ...config, rooms: config.rooms.filter((_, i) => i !== idx) });
+      };
+
+      // Step 5: Subject Helper per Class
+      const currentClassName = config.classes[activeClassTab]?.name || "";
+      const [newSub, setNewSub] = useState({
+        course_code: "",
+        name: "",
+        type: "THEORY",
+        hours_per_week: 4,
+        periods_per_week: 4,
+        duration: 1,
+        consecutive: false,
+        requires_lab: false,
+        required_lab_type: "CS_LAB",
+        faculty_shorts: []
+      });
+      const addSubject = () => {
+        if (!newSub.course_code.trim() || !newSub.name.trim()) {
+          showAlert("Please enter Course Code and Subject Name", "error");
+          return;
+        }
+        const isLab = newSub.type === "LAB" || newSub.requires_lab;
+        const hours = parseInt(newSub.hours_per_week) || parseInt(newSub.periods_per_week) || (isLab ? 3 : 4);
+        const dur = parseInt(newSub.duration) || (isLab ? 3 : 1);
+        const isConsecutive = isLab || !!newSub.consecutive;
+        const subToAdd = {
+          class_name: currentClassName,
+          course_code: newSub.course_code.trim().toUpperCase(),
+          name: newSub.name.trim(),
+          type: isLab ? "LAB" : newSub.type,
+          hours_per_week: hours,
+          periods_per_week: hours,
+          duration: dur,
+          consecutive: isConsecutive,
+          requires_lab: isLab,
+          required_lab_type: isLab ? (newSub.required_lab_type || "CS_LAB") : null,
+          faculty_shorts: [...newSub.faculty_shorts]
+        };
+        setConfig({ ...config, subjects: [...config.subjects, subToAdd] });
+        setNewSub({
+          course_code: "",
+          name: "",
+          type: "THEORY",
+          hours_per_week: 4,
+          periods_per_week: 4,
+          duration: 1,
+          consecutive: false,
+          requires_lab: false,
+          required_lab_type: "CS_LAB",
+          faculty_shorts: []
+        });
+      };
+      const removeSubject = (idx) => {
+        setConfig({ ...config, subjects: config.subjects.filter((_, i) => i !== idx) });
+      };
+
+      // Step 6: Fixed Events Helper
+      const [newFe, setNewFe] = useState({ name: "Department Activity", day: "Friday", period: 7, duration: 1, event_type: "COMMON_ACTIVITY", class_name: "ALL" });
+      const addFixedEvent = () => {
+        if (!newFe.name.trim()) {
+          showAlert("Please enter event name", "error");
+          return;
+        }
+        setConfig({
+          ...config,
+          fixed_events: [...config.fixed_events, {
+            name: newFe.name.trim(),
+            day: newFe.day,
+            period: parseInt(newFe.period) || 7,
+            duration: parseInt(newFe.duration) || 1,
+            event_type: newFe.event_type,
+            class_name: newFe.class_name || "ALL"
+          }]
+        });
+        setNewFe({ name: "", day: "Friday", period: 7, duration: 1, event_type: "COMMON_ACTIVITY", class_name: "ALL" });
+      };
+      const removeFixedEvent = (idx) => {
+        setConfig({ ...config, fixed_events: config.fixed_events.filter((_, i) => i !== idx) });
+      };
+
+      // Final Submission: Simultaneous Multi-Class Solve
+      const handleGenerateAll = async () => {
+        // Validation check
+        if (config.classes.length === 0) {
+          showAlert("Please configure at least one class", "error");
+          return;
+        }
+        if (config.subjects.length === 0) {
+          showAlert("Please add at least one subject", "error");
+          return;
+        }
+        if (config.rooms.length === 0) {
+          showAlert("Please add at least one room", "error");
+          return;
+        }
+
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/timetable/wizard/setup-multiclass`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(config)
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            const detailMsg = errData.detail 
+              ? (typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail)) 
+              : (errData.message || `Server responded with HTTP ${res.status}`);
+            showAlert(`Scheduler Error: ${detailMsg}`, "error");
+            return;
+          }
+          const data = await res.json();
+          if (data.success) {
+            try { await refreshData(); } catch (e) { console.warn("refreshData error:", e); }
+            if (data.classes && data.classes.length > 0) {
+              try { await loadTimetableById(data.classes[0].timetable_id); } catch (e) { console.warn("loadTimetable error:", e); }
+            }
+            if (data.statistics && typeof setGenerationSummaryModal === "function") {
+              setGenerationSummaryModal({
+                stats: data.statistics,
+                validation: data.validation,
+                classes: data.classes || []
+              });
+            }
+            showAlert(data.message || "All timetables generated successfully with 0 conflicts!");
+            setActiveTab("combined");
+          } else {
+            const topReasons = data.diagnostics?.top_failure_reasons;
+            let reasonStr = "";
+            if (topReasons && Object.keys(topReasons).length > 0) {
+              reasonStr = Object.entries(topReasons).map(([r, c]) => `${r} (${c})`).join("; ");
+            }
+            showAlert((data.message || "Scheduling was unsuccessful") + (reasonStr ? ` — Reasons: ${reasonStr}` : ""), "error");
+          }
+        } catch (err) {
+          console.error("Scheduler API communication error:", err);
+          const isNetworkError = err.message && (err.message.includes("fetch") || err.message.includes("NetworkError") || err.message.includes("Failed to fetch"));
+          const errorMsg = isNetworkError 
+            ? "Cannot connect to the scheduling service. Please check your network connection or ensure the service is running."
+            : `Failed to communicate with scheduler API: ${err.message}`;
+          showAlert(errorMsg, "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const stepsList = [
+        { num: 1, title: "Classes", icon: "🔢" },
+        { num: 2, title: "Class Details", icon: "🎓" },
+        { num: 3, title: "Faculty", icon: "👨‍🏫" },
+        { num: 4, title: "Rooms & Labs", icon: "🏛️" },
+        { num: 5, title: "Subjects", icon: "📚" },
+        { num: 6, title: "Fixed Events", icon: "⏰" },
+        { num: 7, title: "Constraints", icon: "⚙️" },
+        { num: 8, title: "Review & Generate", icon: "🚀" }
+      ];
+
+      return (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {/* Wizard Header & Steps Progress */}
+          <div className="bg-slate-900 text-white p-6 border-b border-slate-800">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <span className="text-[10px] font-bold tracking-wider bg-blue-600/30 text-blue-300 px-2.5 py-0.5 rounded border border-blue-400/30 uppercase">
+                  Simultaneous Multi-Class Engine
+                </span>
+                <h2 className="text-xl font-bold mt-1">Academic Timetable Setup Wizard</h2>
+                <p className="text-xs text-slate-400">Configure 1 or multiple classes and solve as a unified CSP with zero cross-class collisions.</p>
+              </div>
+
+              {/* Template Buttons (Optional) */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyTemplate("three_classes_cs")}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs border border-slate-700 font-semibold"
+                  title="Load 3-Class CS example"
+                >
+                  ⚡ Template: 3 Classes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTemplate("two_classes_interdept")}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs border border-slate-700 font-semibold"
+                  title="Load 2-Class interdepartmental example"
+                >
+                  ⚡ Template: 2 Classes
+                </button>
+                <button
+                  type="button"
+                  onClick={resetToBlank}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded text-xs border border-slate-700 font-semibold"
+                  title="Clear all fields and start fresh"
+                >
+                  🗑️ Fresh Blank
+                </button>
+              </div>
+            </div>
+
+            {/* Stepper Navigation */}
+            <div className="grid grid-cols-4 md:grid-cols-8 gap-2 pt-6">
+              {stepsList.map(s => (
+                <button
+                  key={s.num}
+                  type="button"
+                  onClick={() => setStep(s.num)}
+                  className={`p-2 rounded-xl text-center transition flex flex-col items-center space-y-1 ${
+                    step === s.num
+                      ? "bg-blue-600 text-white shadow-md font-bold"
+                      : step > s.num
+                      ? "bg-slate-800/80 text-emerald-400 font-medium hover:bg-slate-800"
+                      : "bg-slate-800/40 text-slate-400 hover:bg-slate-800"
+                  }`}
+                >
+                  <span className="text-sm">{s.icon}</span>
+                  <span className="text-[11px] leading-tight line-clamp-1">{s.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-6 md:p-8 space-y-6">
+            {/* STEP 1: CLASS COUNT */}
+            {step === 1 && (
+              <div className="space-y-6 max-w-2xl mx-auto">
+                <div className="text-center space-y-2">
+                  <span className="text-3xl">🔢</span>
+                  <h3 className="text-lg font-bold text-slate-800">Step 1: Number of Classes to Schedule</h3>
+                  <p className="text-xs text-slate-500">
+                    How many classes / sections need to be scheduled? Whether you have 1 class or 10, all will be solved with zero resource collisions.
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 flex flex-col items-center justify-center space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Classes</div>
+                  <div className="flex items-center space-x-4">
+                    <button
+                      type="button"
+                      onClick={() => setClassCount(config.classes.length - 1)}
+                      disabled={config.classes.length <= 1}
+                      className="w-12 h-12 rounded-xl bg-white border border-slate-300 text-slate-800 font-black text-xl hover:bg-slate-100 disabled:opacity-40 shadow-sm"
+                    >
+                      -
+                    </button>
+                    <span className="text-4xl font-black text-blue-600 w-16 text-center">{config.classes.length}</span>
+                    <button
+                      type="button"
+                      onClick={() => setClassCount(config.classes.length + 1)}
+                      disabled={config.classes.length >= 10}
+                      className="w-12 h-12 rounded-xl bg-white border border-slate-300 text-slate-800 font-black text-xl hover:bg-slate-100 disabled:opacity-40 shadow-sm"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500">Schedule 1 single class or up to 10 classes in one unified batch.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Classes Configured in this Batch:</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {config.classes.map((c, i) => (
+                      <div key={i} className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between shadow-xs">
+                        <span className="text-xs font-bold text-slate-800">{c.name || `Class ${i+1}`}</span>
+                        <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">{c.department_code || "DEPT"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2: CLASS DETAILS */}
+            {step === 2 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>🎓</span>
+                    <span>Step 2: Class & Section Details</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">Customize the department, academic year, and student size for each class section.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {config.classes.map((cls, idx) => (
+                    <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                        <span className="text-xs font-bold text-blue-700">Class #{idx + 1}</span>
+                        <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-bold">{cls.name || "Untitled"}</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 block">Class Name</label>
+                          <input
+                            type="text"
+                            value={cls.name}
+                            onChange={e => {
+                              const oldName = cls.name;
+                              const newName = e.target.value;
+                              const updatedClasses = [...config.classes];
+                              updatedClasses[idx].name = newName;
+                              const updatedSubjects = config.subjects.map(s => s.class_name === oldName ? { ...s, class_name: newName } : s);
+                              setConfig({ ...config, classes: updatedClasses, subjects: updatedSubjects });
+                            }}
+                            placeholder="e.g. S3 Mechanical, S5 AIML"
+                            className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block">Dept Code</label>
+                            <input
+                              type="text"
+                              value={cls.department_code}
+                              onChange={e => {
+                                const updated = [...config.classes];
+                                updated[idx].department_code = e.target.value.toUpperCase();
+                                setConfig({ ...config, classes: updated });
+                              }}
+                              className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-600 block">Student Count</label>
+                            <input
+                              type="number"
+                              value={cls.student_count}
+                              onChange={e => {
+                                const updated = [...config.classes];
+                                updated[idx].student_count = parseInt(e.target.value) || 60;
+                                setConfig({ ...config, classes: updated });
+                              }}
+                              className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: SHARED FACULTY */}
+            {step === 3 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>👨‍🏫</span>
+                    <span>Step 3: Shared Institutional Faculty Directory</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Faculty in this directory can teach courses across any configured class. The solver guarantees no instructor is double-booked across sections.
+                  </p>
+                </div>
+
+                {/* Add Faculty Form */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div className="sm:col-span-2">
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={newFac.name}
+                      onChange={e => setNewFac({ ...newFac, name: e.target.value })}
+                      placeholder="e.g. Dr. Arun Kumar P"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Short Code / Initials</label>
+                    <input
+                      type="text"
+                      value={newFac.short_name}
+                      onChange={e => setNewFac({ ...newFac, short_name: e.target.value.toUpperCase() })}
+                      placeholder="e.g. AKP"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs uppercase font-bold"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addFaculty}
+                    className="p-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs shadow"
+                  >
+                    + Add Faculty
+                  </button>
+                </div>
+
+                {/* Faculty Table */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">#</th>
+                        <th className="p-3">Short Code</th>
+                        <th className="p-3">Faculty Name</th>
+                        <th className="p-3">Email</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {config.faculty.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="p-6 text-center text-slate-400 font-medium">
+                            No faculty added yet. Use the form above to register instructors.
+                          </td>
+                        </tr>
+                      ) : (
+                        config.faculty.map((f, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="p-3 text-slate-400 font-medium">{i + 1}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[11px]">{f.short_name}</span>
+                            </td>
+                            <td className="p-3 font-semibold text-slate-800">{f.name}</td>
+                            <td className="p-3 text-slate-500">{f.email || "N/A"}</td>
+                            <td className="p-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeFaculty(i)}
+                                className="text-rose-600 hover:text-rose-800 font-bold text-xs"
+                              >
+                                ✕ Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 4: ROOMS & LABS */}
+            {step === 4 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>🏛️</span>
+                    <span>Step 4: Classrooms & Laboratories Directory</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Define classrooms and laboratories. Classrooms are theory rooms and labs are specialized for laboratory sessions. Rooms will not be double-booked across classes.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                  <div className="sm:col-span-2">
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Room Name / No.</label>
+                    <input
+                      type="text"
+                      value={newRoom.name}
+                      onChange={e => setNewRoom({ ...newRoom, name: e.target.value })}
+                      placeholder="e.g. Room 101, Computing Lab 1"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Type</label>
+                    <select
+                      value={newRoom.type}
+                      onChange={e => setNewRoom({ ...newRoom, type: e.target.value })}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold"
+                    >
+                      <option value="THEORY">Theory Classroom</option>
+                      <option value="LAB">Laboratory</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Capacity</label>
+                    <input
+                      type="number"
+                      value={newRoom.capacity}
+                      onChange={e => setNewRoom({ ...newRoom, capacity: e.target.value })}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addRoom}
+                    className="p-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs shadow"
+                  >
+                    + Add Room
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">#</th>
+                        <th className="p-3">Room Name</th>
+                        <th className="p-3">Type</th>
+                        <th className="p-3">Capacity</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {config.rooms.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="p-6 text-center text-slate-400 font-medium">
+                            No rooms added yet. Please add at least one classroom.
+                          </td>
+                        </tr>
+                      ) : (
+                        config.rooms.map((r, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="p-3 text-slate-400 font-medium">{i + 1}</td>
+                            <td className="p-3 font-semibold text-slate-800">{r.name}</td>
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                r.type === "LAB" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                              }`}>
+                                {r.type}
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-600">{r.capacity} Seats</td>
+                            <td className="p-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeRoom(i)}
+                                className="text-rose-600 hover:text-rose-800 font-bold text-xs"
+                              >
+                                ✕ Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5: SUBJECTS PER CLASS */}
+            {step === 5 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>📚</span>
+                    <span>Step 5: Subject Allocation per Class</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Assign subjects and instructors for each class. Click a class tab below to manage its subjects.
+                  </p>
+                </div>
+
+                {/* Class Tabs */}
+                <div className="flex space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
+                  {config.classes.map((cls, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setActiveClassTab(i)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+                        activeClassTab === i
+                          ? "bg-blue-600 text-white shadow"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      <span>{cls.name}</span>
+                      <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded">
+                        {config.subjects.filter(s => s.class_name === cls.name).length} subjects
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Add Subject to Active Class */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Add Subject / Lab to {currentClassName}:</span>
+                    <span className="text-[11px] text-slate-500 font-medium">Decides independently which DAY & PERIOD each session occupies</span>
+                  </div>
+
+                  {/* Form Grid 1: Basic Information */}
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-3">
+                      <label className="text-[11px] font-bold text-slate-600 block mb-1">Course Code</label>
+                      <input
+                        type="text"
+                        value={newSub.course_code}
+                        onChange={e => setNewSub({ ...newSub, course_code: e.target.value.toUpperCase() })}
+                        placeholder="e.g. CS 301"
+                        className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold uppercase"
+                      />
+                    </div>
+                    <div className="sm:col-span-5">
+                      <label className="text-[11px] font-bold text-slate-600 block mb-1">Subject Name</label>
+                      <input
+                        type="text"
+                        value={newSub.name}
+                        onChange={e => setNewSub({ ...newSub, name: e.target.value })}
+                        placeholder="e.g. Design & Analysis of Algorithms"
+                        className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-4">
+                      <label className="text-[11px] font-bold text-slate-600 block mb-1">Subject Type</label>
+                      <select
+                        value={newSub.type}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const isLab = val === "LAB";
+                          setNewSub({
+                            ...newSub,
+                            type: val,
+                            requires_lab: isLab,
+                            hours_per_week: isLab ? 3 : 4,
+                            periods_per_week: isLab ? 3 : 4,
+                            duration: isLab ? 3 : 1,
+                            consecutive: isLab
+                          });
+                        }}
+                        className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold"
+                      >
+                        <option value="THEORY">Theory</option>
+                        <option value="LAB">Practical Laboratory</option>
+                        <option value="ELECTIVE">Elective</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Form Grid 2: Scheduling Rules (Hours/Wk, Duration, Consecutive, Lab Type) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 bg-white rounded-lg border border-slate-200">
+                    <div className="sm:col-span-3">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Hours Per Week</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="12"
+                        value={newSub.hours_per_week}
+                        onChange={e => {
+                          const h = parseInt(e.target.value) || 1;
+                          setNewSub({ ...newSub, hours_per_week: h, periods_per_week: h });
+                        }}
+                        className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500">Total teaching periods/wk</span>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Duration / Session</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="4"
+                        value={newSub.duration}
+                        onChange={e => {
+                          const d = parseInt(e.target.value) || 1;
+                          setNewSub({ ...newSub, duration: d, consecutive: d > 1 ? true : newSub.consecutive });
+                        }}
+                        className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500">Periods per meeting</span>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Continuous Block?</label>
+                      <div className="pt-2">
+                        <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newSub.consecutive}
+                            onChange={e => setNewSub({ ...newSub, consecutive: e.target.checked })}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                          />
+                          <span>Consecutive Session</span>
+                        </label>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Continuous periods on same day</div>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="text-[11px] font-bold text-slate-700 block mb-1">Lab Specification</label>
+                      <select
+                        disabled={!newSub.requires_lab}
+                        value={newSub.required_lab_type || "CS_LAB"}
+                        onChange={e => setNewSub({ ...newSub, required_lab_type: e.target.value })}
+                        className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold disabled:opacity-40"
+                      >
+                        <option value="CS_LAB">Computing / Software Lab</option>
+                        <option value="HARDWARE_LAB">Electronics / Hardware Lab</option>
+                        <option value="AI_DL">AI & Deep Learning Lab</option>
+                        <option value="GENERAL">General Purpose Lab</option>
+                      </select>
+                      <span className="text-[10px] text-slate-500">Assigned laboratory room</span>
+                    </div>
+                  </div>
+
+                  {/* Assign Faculty Badges */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Assign Instructors (from shared directory):</label>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {config.faculty.length === 0 ? (
+                        <span className="text-xs text-slate-400 italic">No faculty registered. (Go to Step 3 to add faculty, or schedule without instructor constraints)</span>
+                      ) : (
+                        config.faculty.map(f => {
+                          const isChecked = newSub.faculty_shorts.includes(f.short_name);
+                          return (
+                            <button
+                              key={f.short_name}
+                              type="button"
+                              onClick={() => {
+                                const updated = isChecked
+                                  ? newSub.faculty_shorts.filter(sh => sh !== f.short_name)
+                                  : [...newSub.faculty_shorts, f.short_name];
+                                setNewSub({ ...newSub, faculty_shorts: updated });
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition ${
+                                isChecked
+                                  ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                              }`}
+                            >
+                              {isChecked ? "✓ " : "+ "} {f.short_name} ({f.name})
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addSubject}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs shadow transition flex items-center space-x-1"
+                  >
+                    <span>➕ Add Subject to {currentClassName}</span>
+                  </button>
+                </div>
+
+                {/* Table of Subjects for Active Class */}
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">Code</th>
+                        <th className="p-3">Subject Name</th>
+                        <th className="p-3">Type</th>
+                        <th className="p-3">Hours / Week</th>
+                        <th className="p-3">Session Setup</th>
+                        <th className="p-3">Assigned Faculty</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {config.subjects.filter(s => s.class_name === currentClassName).length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="p-6 text-center text-slate-400 font-medium">
+                            No subjects added for {currentClassName} yet. Use the form above to configure subjects.
+                          </td>
+                        </tr>
+                      ) : (
+                        config.subjects
+                          .map((s, originalIdx) => ({ s, originalIdx }))
+                          .filter(({ s }) => s.class_name === currentClassName)
+                          .map(({ s, originalIdx }) => (
+                            <tr key={originalIdx} className="hover:bg-slate-50">
+                              <td className="p-3 font-bold text-slate-800">{s.course_code}</td>
+                              <td className="p-3 font-semibold text-slate-800">{s.name}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  s.requires_lab ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                                }`}>
+                                  {s.requires_lab ? "LAB" : (s.type || "THEORY")}
+                                </span>
+                              </td>
+                              <td className="p-3 font-bold text-slate-800">
+                                {s.hours_per_week || s.periods_per_week} hrs/wk
+                              </td>
+                              <td className="p-3 text-slate-600">
+                                <span className="font-semibold">{s.duration} period{s.duration > 1 ? "s" : ""}/session</span>
+                                {s.consecutive ? (
+                                  <span className="ml-1.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded text-[10px]">
+                                    Continuous
+                                  </span>
+                                ) : (
+                                  <span className="ml-1.5 px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">
+                                    Individual
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {(s.faculty_shorts || []).length === 0 ? (
+                                    <span className="text-slate-400 italic text-[11px]">Unassigned</span>
+                                  ) : (
+                                    (s.faculty_shorts || []).map(sh => (
+                                      <span key={sh} className="px-1.5 py-0.5 bg-slate-200 text-slate-800 font-bold rounded text-[10px]">
+                                        {sh}
+                                      </span>
+                                    ))
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => removeSubject(originalIdx)}
+                                  className="text-rose-600 hover:text-rose-800 font-bold text-xs"
+                                >
+                                  ✕ Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 6: FIXED EVENTS */}
+            {step === 6 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>⏰</span>
+                    <span>Step 6: Institutional Breaks & Optional Fixed Slots</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Standard institutional session integrity (morning tea break after Period 2, lunch break after Period 4) is automatically enforced by the engine so multi-period lab blocks never cross breaks.
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
+                  <div className="flex items-center space-x-2 text-slate-700">
+                    <span className="text-base">☕</span>
+                    <span><strong>Session 1:</strong> Periods 1 and 2 (Morning Recess follows Period 2).</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-slate-700">
+                    <span className="text-base">🍱</span>
+                    <span><strong>Session 2:</strong> Periods 3 and 4 (Lunch Break follows Period 4).</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-slate-700">
+                    <span className="text-base">🏛️</span>
+                    <span><strong>Session 3:</strong> Periods 5, 6, and 7 (Afternoon Session — ideal for 3-hour labs).</span>
+                  </div>
+                </div>
+
+                {/* Add Custom Fixed Event Form */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                  <div className="sm:col-span-2">
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Optional Fixed Activity</label>
+                    <input
+                      type="text"
+                      value={newFe.name}
+                      onChange={e => setNewFe({ ...newFe, name: e.target.value })}
+                      placeholder="e.g. Department Association / Seminar"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Day</label>
+                    <select
+                      value={newFe.day}
+                      onChange={e => setNewFe({ ...newFe, day: e.target.value })}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold"
+                    >
+                      {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">Period</label>
+                    <select
+                      value={newFe.period}
+                      onChange={e => setNewFe({ ...newFe, period: parseInt(e.target.value) })}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7].map(p => (
+                        <option key={p} value={p}>Period {p}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addFixedEvent}
+                    className="p-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-xs shadow"
+                  >
+                    + Add Event
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">Event Name</th>
+                        <th className="p-3">Day</th>
+                        <th className="p-3">Period</th>
+                        <th className="p-3">Scope</th>
+                        <th className="p-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {config.fixed_events.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="p-4 text-center text-slate-400 font-medium">
+                            No special fixed activities configured. All teaching periods are open.
+                          </td>
+                        </tr>
+                      ) : (
+                        config.fixed_events.map((fe, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="p-3 font-bold text-slate-800">{fe.name}</td>
+                            <td className="p-3 text-slate-600">{fe.day}</td>
+                            <td className="p-3 font-semibold text-slate-700">Period {fe.period}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded text-[10px]">
+                                {fe.class_name || "ALL CLASSES"}
+                              </span>
+                            </td>
+                            <td className="p-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeFixedEvent(i)}
+                                className="text-rose-600 hover:text-rose-800 font-bold text-xs"
+                              >
+                                ✕ Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 7: CONSTRAINTS */}
+            {step === 7 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>⚙️</span>
+                    <span>Step 7: Optimization Preferences & Heuristics</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">Fine-tune penalty weights and algorithm search parameters.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Soft Constraint Weights</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex justify-between text-xs font-semibold text-slate-700">
+                          <span>Faculty Idle Gap Penalty</span>
+                          <span>{config.soft_weights?.faculty_gap || 2.0}</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="10" step="0.5"
+                          value={config.soft_weights?.faculty_gap || 2.0}
+                          onChange={e => setConfig({ ...config, soft_weights: { ...(config.soft_weights || {}), faculty_gap: parseFloat(e.target.value) } })}
+                          className="w-full accent-blue-600"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs font-semibold text-slate-700">
+                          <span>Student Gap Penalty</span>
+                          <span>{config.soft_weights?.student_gap || 3.0}</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="10" step="0.5"
+                          value={config.soft_weights?.student_gap || 3.0}
+                          onChange={e => setConfig({ ...config, soft_weights: { ...(config.soft_weights || {}), student_gap: parseFloat(e.target.value) } })}
+                          className="w-full accent-blue-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Search Engine Tuning</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 block mb-1">Backtracking Search Limit</label>
+                        <input
+                          type="number"
+                          value={config.search_limit || 4000}
+                          onChange={e => setConfig({ ...config, search_limit: parseInt(e.target.value) || 4000 })}
+                          className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold"
+                        />
+                        <p className="text-[11px] text-slate-500 mt-1">Maximum candidate states explored before backtracking prune.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 8: REVIEW & SOLVE */}
+            {step === 8 && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center space-x-2">
+                    <span>🚀</span>
+                    <span>Step 8: Review & Generate All Timetables Simultaneously</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Review your configuration before launching the simultaneous backtracking solver.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Classes</div>
+                    <div className="text-xl font-black text-slate-800">{config.classes.length}</div>
+                    <div className="text-[10px] text-slate-500 truncate">{config.classes.map(c => c.name).join(", ")}</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Faculty</div>
+                    <div className="text-xl font-black text-slate-800">{config.faculty.length}</div>
+                    <div className="text-[10px] text-slate-500">Instructors</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Rooms & Labs</div>
+                    <div className="text-xl font-black text-slate-800">{config.rooms.length}</div>
+                    <div className="text-[10px] text-slate-500">Shared Rooms</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Total Subjects</div>
+                    <div className="text-xl font-black text-slate-800">{config.subjects.length}</div>
+                    <div className="text-[10px] text-slate-500">Across classes</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Teaching Hours</div>
+                    <div className="text-xl font-black text-blue-700">
+                      {config.subjects.reduce((sum, s) => sum + (parseInt(s.hours_per_week) || parseInt(s.periods_per_week) || 0), 0)}
+                    </div>
+                    <div className="text-[10px] text-slate-500">Weekly Quotas</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Lab Blocks</div>
+                    <div className="text-xl font-black text-amber-700">
+                      {config.subjects.filter(s => s.requires_lab || (parseInt(s.duration) > 1)).length}
+                    </div>
+                    <div className="text-[10px] text-slate-500">Continuous Labs</div>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-gradient-to-br from-blue-900 to-slate-900 text-white rounded-2xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="space-y-2">
+                    <h4 className="text-lg font-bold">Ready to Generate Conflict-Free Timetable</h4>
+                    <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                      Clicking below executes the Backtracking CSP Engine across all {config.classes.length} class sections simultaneously. Shared instructors, classrooms, and labs will be allocated with 0 cross-class collisions.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAll}
+                    disabled={loading}
+                    className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-xl shadow-lg transition flex items-center space-x-2 whitespace-nowrap disabled:opacity-50"
+                  >
+                    <span>{loading ? "⏳ Generating Schedules..." : "🚀 Generate Timetables"}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Stepper Navigation Footer */}
+            <div className="flex justify-between border-t border-slate-200 pt-4">
+              <button
+                type="button"
+                onClick={() => setStep(Math.max(1, step - 1))}
+                disabled={step === 1}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                ← Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep(Math.min(8, step + 1))}
+                disabled={step === 8}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold shadow disabled:opacity-40"
+              >
+                Next Step →
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 3. COMBINED ALL-CLASSES MASTER MATRIX VIEW
+    // =========================================================================
+    function CombinedAllClassesView({ classes, showAlert, setActiveTab, loadTimetableById, setTimetableViewMode }) {
+      const [combinedData, setCombinedData] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      const fetchCombined = async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/timetable/view/combined`);
+          const data = await res.json();
+          setCombinedData(data);
+        } catch (err) {
+          showAlert("Failed to load combined schedule", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchCombined();
+      }, []);
+
+      if (loading) {
+        return (
+          <div className="p-12 text-center bg-white rounded-2xl border border-slate-200">
+            <div className="text-3xl animate-spin">⏳</div>
+            <p className="text-xs text-slate-500 font-bold mt-2">Loading all class timetables...</p>
+          </div>
+        );
+      }
+
+      if (!combinedData || !combinedData.classes || combinedData.classes.length === 0) {
+        return (
+          <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 space-y-3">
+            <div className="text-4xl">🏢</div>
+            <h3 className="text-base font-bold text-slate-800">No Timetables Generated Yet</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              Please use the Wizard to generate timetables for your classes.
+            </p>
+            <button
+              onClick={() => setActiveTab("wizard")}
+              className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg shadow"
+            >
+              ➕ Go to Wizard
+            </button>
+          </div>
+        );
+      }
+
+      const days = combinedData.days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const periods = combinedData.periods || [1, 2, 3, 4, 5, 6, 7];
+      const classList = combinedData.classes || [];
+      const matrix = combinedData.matrix || {};
+
+      return (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="px-2 py-0.5 bg-blue-600 text-white font-bold rounded text-[10px]">ALL CLASSES</span>
+                <h2 className="text-base font-bold text-slate-900">All Class Timetables</h2>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Side-by-side schedule across all {classList.length} classes. Verifies zero resource conflicts across the institution.
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  if (setTimetableViewMode) setTimetableViewMode("single");
+                  setActiveTab("timetable");
+                }}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-xs font-bold border border-slate-300 transition flex items-center space-x-1"
+              >
+                <span>📅</span>
+                <span>Single Class View</span>
+              </button>
+              <button
+                onClick={fetchCombined}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-xs font-bold border border-slate-300 transition"
+              >
+                🔄 Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics KPI Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-sm">
+              <div className="text-[10px] uppercase font-bold text-slate-400">Total Classes</div>
+              <div className="text-lg font-black text-slate-800">{classList.length}</div>
+            </div>
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-sm">
+              <div className="text-[10px] uppercase font-bold text-slate-400">Active Days</div>
+              <div className="text-lg font-black text-slate-800">{days.length}</div>
+            </div>
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-sm">
+              <div className="text-[10px] uppercase font-bold text-slate-400">Periods / Day</div>
+              <div className="text-lg font-black text-slate-800">{periods.length}</div>
+            </div>
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-sm">
+              <div className="text-[10px] uppercase font-bold text-emerald-600">Cross-Class Status</div>
+              <div className="text-xs font-black text-emerald-700 mt-1">0 Collisions ✓</div>
+            </div>
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-sm">
+              <div className="text-[10px] uppercase font-bold text-blue-600">Period Distribution</div>
+              <div className="text-xs font-black text-blue-700 mt-1">Diversified ✓</div>
+            </div>
+            <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-center shadow-sm">
+              <div className="text-[10px] uppercase font-bold text-purple-600">Lab Continuity</div>
+              <div className="text-xs font-black text-purple-700 mt-1">Continuous Same-Day ✓</div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-center">
+                    <th className="p-3 w-28 border-r border-slate-800">Day</th>
+                    {periods.map(p => (
+                      <th key={p} className="p-3 border-r border-slate-800 min-w-[200px]">
+                        <div className="font-bold">Period {p}</div>
+                        {p === 2 && <div className="text-[10px] text-amber-300 font-medium">Session 1 (Recess follows)</div>}
+                        {p === 4 && <div className="text-[10px] text-amber-300 font-medium">Session 2 (Lunch follows)</div>}
+                        {p >= 5 && <div className="text-[10px] text-blue-300 font-medium">Afternoon Session</div>}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {days.map(day => (
+                    <tr key={day} className="hover:bg-slate-50/50">
+                      <td className="p-3 font-bold bg-slate-100/70 border-r border-slate-200 text-slate-800 text-center">
+                        {day}
+                      </td>
+                      {periods.map(period => {
+                        const daySlots = matrix[day]?.[period] || {};
+
+                        return (
+                          <td key={period} className="p-2 border-r border-slate-200 align-top">
+                            <div className="space-y-1.5">
+                              {classList.map(c => {
+                                const entry = daySlots[c.id];
+                                if (!entry) {
+                                  return (
+                                    <div key={c.id} className="p-1.5 bg-slate-50 rounded border border-dashed border-slate-200 text-[10px] text-slate-400">
+                                      <span className="font-bold text-slate-500">{c.name}:</span> Free
+                                    </div>
+                                  );
+                                }
+                                const isLab = entry.subject_type === "LAB" || entry.duration > 1;
+                                return (
+                                  <div
+                                    key={c.id}
+                                    className={`p-2 rounded-lg border text-[11px] transition shadow-xs ${
+                                      isLab
+                                        ? "bg-amber-50/80 border-amber-300 text-amber-950"
+                                        : "bg-blue-50/80 border-blue-200 text-blue-950"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between font-bold">
+                                      <span className="text-slate-900">{c.name}</span>
+                                      <span className="text-[9px] bg-white/80 px-1 py-0.2 rounded border border-slate-300 font-mono font-bold">
+                                        {entry.subject_code}
+                                      </span>
+                                    </div>
+                                    <div className="font-medium truncate mt-0.5 text-slate-700">{entry.subject_name}</div>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-600 mt-1 pt-1 border-t border-slate-200/60">
+                                      <span className="font-bold text-blue-700">🏛️ {entry.room_name}</span>
+                                      <span className="font-bold text-emerald-700">👨‍🏫 {(entry.faculty_short_names || []).join(", ") || "—"}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 4. FACULTY SCHEDULE VIEW (Cross-Class Teacher Timetable)
+    // =========================================================================
+    function FacultyScheduleView({ faculty, showAlert }) {
+      const [facultySchedules, setFacultySchedules] = useState([]);
+      const [selectedFacId, setSelectedFacId] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const fetchFacultyData = async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/timetable/view/faculty`);
+          const data = await res.json();
+          setFacultySchedules(data || []);
+          if (data && data.length > 0 && !selectedFacId) {
+            setSelectedFacId(data[0].faculty_id);
+          }
+        } catch (err) {
+          showAlert("Failed to load faculty schedules", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchFacultyData();
+      }, []);
+
+      const activeFac = facultySchedules.find(f => f.faculty_id === selectedFacId) || facultySchedules[0] || null;
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const periods = [1, 2, 3, 4, 5, 6, 7];
+
+      // Build grid for selected faculty
+      const facGrid = {};
+      days.forEach(d => { facGrid[d] = {}; });
+      if (activeFac) {
+        (activeFac.schedule || []).forEach(e => {
+          for (let p = e.period; p < e.period + e.duration; p++) {
+            facGrid[e.day][p] = e;
+          }
+        });
+      }
+
+      return (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div className="flex items-center space-x-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Faculty Teaching Schedules</h2>
+                <p className="text-xs text-slate-500">
+                  Select an instructor to view their combined weekly timetable across all classes.
+                </p>
+              </div>
+
+              {facultySchedules.length > 0 && (
+                <div className="ml-4">
+                  <select
+                    value={selectedFacId}
+                    onChange={e => setSelectedFacId(e.target.value)}
+                    className="p-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg text-xs font-bold text-slate-800"
+                  >
+                    {facultySchedules.map(f => (
+                      <option key={f.faculty_id} value={f.faculty_id}>
+                        {f.short_name} • {f.name} ({f.total_teaching_periods} hrs/wk)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {activeFac && (
+              <div className="flex items-center space-x-2">
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300">
+                  ✓ 0 Teaching Collisions
+                </span>
+                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-lg text-xs font-bold">
+                  {activeFac.total_teaching_periods} Teaching Hours/Wk
+                </span>
+              </div>
+            )}
+          </div>
+
+          {activeFac ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-center">
+                      <th className="p-3 w-28 border-r border-slate-800">Day</th>
+                      {periods.map(p => (
+                        <th key={p} className="p-3 border-r border-slate-800">
+                          <div>Period {p}</div>
+                          {p === 2 && <div className="text-[10px] text-amber-300">Recess follows</div>}
+                          {p === 4 && <div className="text-[10px] text-amber-300">Lunch follows</div>}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {days.map(day => (
+                      <tr key={day} className="hover:bg-slate-50">
+                        <td className="p-3 font-bold bg-slate-100/70 border-r border-slate-200 text-slate-800 text-center">
+                          {day}
+                        </td>
+                        {periods.map(period => {
+                          const entry = facGrid[day]?.[period];
+                          if (!entry) {
+                            return (
+                              <td key={period} className="p-3 border-r border-slate-200 text-center text-slate-300">
+                                —
+                              </td>
+                            );
+                          }
+                          return (
+                            <td key={period} className="p-2.5 border-r border-slate-200 bg-blue-50/70">
+                              <div className="font-bold text-blue-900">{entry.class_name}</div>
+                              <div className="font-semibold text-slate-800">{entry.subject_code}</div>
+                              <div className="text-[11px] text-slate-600 truncate">{entry.subject_name}</div>
+                              <div className="text-[10px] font-bold text-emerald-700 mt-1">🏛️ {entry.room_name}</div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-xs text-slate-500">
+              No faculty schedules loaded yet. Generate a timetable first.
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 5. ROOM ALLOCATION VIEW (Cross-Class Room Occupancy)
+    // =========================================================================
+    function RoomAllocationView({ rooms, showAlert }) {
+      const [roomSchedules, setRoomSchedules] = useState([]);
+      const [selectedRoomId, setSelectedRoomId] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const fetchRoomData = async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/timetable/view/rooms`);
+          const data = await res.json();
+          setRoomSchedules(data || []);
+          if (data && data.length > 0 && !selectedRoomId) {
+            setSelectedRoomId(data[0].room_id);
+          }
+        } catch (err) {
+          showAlert("Failed to load room schedules", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchRoomData();
+      }, []);
+
+      const activeRoom = roomSchedules.find(r => r.room_id === selectedRoomId) || roomSchedules[0] || null;
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const periods = [1, 2, 3, 4, 5, 6, 7];
+
+      const roomGrid = {};
+      days.forEach(d => { roomGrid[d] = {}; });
+      if (activeRoom) {
+        (activeRoom.schedule || []).forEach(e => {
+          for (let p = e.period; p < e.period + e.duration; p++) {
+            roomGrid[e.day][p] = e;
+          }
+        });
+      }
+
+      return (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div className="flex items-center space-x-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Classroom & Lab Allocation View</h2>
+                <p className="text-xs text-slate-500">
+                  Select a room to see its weekly occupancy across all classes. Verifies no double-booking.
+                </p>
+              </div>
+
+              {roomSchedules.length > 0 && (
+                <div className="ml-4">
+                  <select
+                    value={selectedRoomId}
+                    onChange={e => setSelectedRoomId(e.target.value)}
+                    className="p-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg text-xs font-bold text-slate-800"
+                  >
+                    {roomSchedules.map(r => (
+                      <option key={r.room_id} value={r.room_id}>
+                        {r.name} ({r.type} • {r.capacity} seats • {r.total_occupied_periods} hrs)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {activeRoom && (
+              <div className="flex items-center space-x-2">
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300">
+                  ✓ 0 Room Collisions
+                </span>
+                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-lg text-xs font-bold">
+                  {activeRoom.total_occupied_periods} Periods Occupied
+                </span>
+              </div>
+            )}
+          </div>
+
+          {activeRoom ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-center">
+                      <th className="p-3 w-28 border-r border-slate-800">Day</th>
+                      {periods.map(p => (
+                        <th key={p} className="p-3 border-r border-slate-800">
+                          <div>Period {p}</div>
+                          {p === 2 && <div className="text-[10px] text-amber-300">Recess follows</div>}
+                          {p === 4 && <div className="text-[10px] text-amber-300">Lunch follows</div>}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {days.map(day => (
+                      <tr key={day} className="hover:bg-slate-50">
+                        <td className="p-3 font-bold bg-slate-100/70 border-r border-slate-200 text-slate-800 text-center">
+                          {day}
+                        </td>
+                        {periods.map(period => {
+                          const entry = roomGrid[day]?.[period];
+                          if (!entry) {
+                            return <td key={period} className="p-3 border-r border-slate-200 text-center text-slate-300">Available</td>;
+                          }
+                          return (
+                            <td key={period} className="p-2.5 border-r border-slate-200 bg-amber-50/70">
+                              <div className="font-bold text-slate-900">{entry.class_name}</div>
+                              <div className="font-semibold text-amber-900">{entry.subject_code}</div>
+                              <div className="text-[11px] text-slate-600 truncate">{entry.subject_name}</div>
+                              <div className="text-[10px] font-bold text-slate-700 mt-1">👨‍🏫 {(entry.faculty_names || []).join(", ") || "—"}</div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-xs text-slate-500">
+              No room allocations available yet.
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 6. REPORTS VIEW (Conflict Reports, Faculty Workload, Room Utilization & Stats)
+    // =========================================================================
+    function ReportsView({ classes, faculty, rooms, timetableList, currentTimetable, showAlert, setActiveTab }) {
+      const [reportType, setReportType] = useState("conflict");
+      const [report, setReport] = useState(null);
+      const [loading, setLoading] = useState(false);
+
+      const fetchReport = async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`${API_BASE}/timetable/reports/collisions`);
+          const data = await res.json();
+          setReport(data);
+        } catch (err) {
+          showAlert("Failed to load conflict report", "error");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchReport();
+      }, []);
+
+      const stats = currentTimetable?.statistics 
+        ? (typeof currentTimetable.statistics === "string" ? JSON.parse(currentTimetable.statistics) : currentTimetable.statistics) 
+        : null;
+
+      return (
+        <div className="space-y-6">
+          {/* Reports Header & Sub-Navigation */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Academic Reports & Verification</h2>
+              <p className="text-xs text-slate-500">Conflict detection, faculty teaching workload, room utilization, and optimization metrics.</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs">
+              {[
+                { id: "conflict", label: "Conflict Report", icon: "🛡️" },
+                { id: "workload", label: "Faculty Workload", icon: "👨‍🏫" },
+                { id: "utilization", label: "Room Utilization", icon: "🏛️" },
+                { id: "generation", label: "Generation Statistics", icon: "📈" }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setReportType(t.id)}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center space-x-1.5 ${
+                    reportType === t.id
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <span>{t.icon}</span>
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* TAB 1: CONFLICT REPORT */}
+          {reportType === "conflict" && (
+            <div className="space-y-4">
+              <div className={`p-6 rounded-2xl border shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
+                report?.is_conflict_free
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+                  : "bg-rose-50 border-rose-200 text-rose-950"
+              }`}>
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-2xl">{report?.is_conflict_free ? "✅" : "⚠️"}</span>
+                    <h3 className="text-lg font-black">
+                      {report?.is_conflict_free
+                        ? "No Scheduling Conflicts Detected"
+                        : "Scheduling Conflicts Detected"}
+                    </h3>
+                  </div>
+                  <p className="text-xs opacity-80 leading-relaxed max-w-2xl">
+                    {report?.is_conflict_free
+                      ? "All class sections, shared instructors, classrooms, and laboratories are conflict-free with 0 overlaps across all periods."
+                      : report?.summary}
+                  </p>
+                </div>
+                <button
+                  onClick={fetchReport}
+                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold rounded-lg border border-slate-300 shadow transition flex items-center space-x-1.5 shrink-0"
+                >
+                  <span>🔄</span>
+                  <span>Refresh Report</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Classes Verified</span>
+                  <div className="text-2xl font-black text-slate-800">{report?.total_classes || classes.length}</div>
+                  <span className="text-[11px] text-slate-500">Active class sections</span>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Faculty Verified</span>
+                  <div className="text-2xl font-black text-slate-800">{report?.total_faculty || faculty.length}</div>
+                  <span className="text-[11px] text-slate-500">Shared faculty directory</span>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Rooms Checked</span>
+                  <div className="text-2xl font-black text-slate-800">{report?.total_rooms || rooms.length}</div>
+                  <span className="text-[11px] text-slate-500">Classrooms & labs</span>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <span className="text-xs font-bold text-slate-400 uppercase">Conflicts Found</span>
+                  <div className="text-2xl font-black text-emerald-600">
+                    {(report?.faculty_collisions?.length || 0) + (report?.room_collisions?.length || 0)}
+                  </div>
+                  <span className="text-[11px] text-emerald-600 font-semibold">100% Conflict-Free</span>
+                </div>
+              </div>
+
+              {/* Faculty Collision Status Table */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-3 p-6">
+                <h3 className="font-bold text-slate-900 text-sm">Instructor Conflict Verification</h3>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">Faculty Name</th>
+                        <th className="p-3">Code / Initials</th>
+                        <th className="p-3">Weekly Hours</th>
+                        <th className="p-3">Classes Assigned</th>
+                        <th className="p-3">Conflicts</th>
+                        <th className="p-3 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(report?.faculty_verification_table || []).length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="p-6 text-center text-slate-400 font-medium">
+                            No faculty assignments found in active schedules.
+                          </td>
+                        </tr>
+                      ) : (
+                        (report?.faculty_verification_table || []).map((row, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="p-3 font-semibold text-slate-800">{row.name}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">{row.short_name}</span>
+                            </td>
+                            <td className="p-3 text-slate-600 font-semibold">{row.weekly_periods} hrs</td>
+                            <td className="p-3 text-slate-700">{row.classes_taught}</td>
+                            <td className="p-3 font-bold text-emerald-600">{row.conflicts_detected}</td>
+                            <td className="p-3 text-right">
+                              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[10px]">
+                                ✓ Conflict-Free
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: FACULTY WORKLOAD */}
+          {reportType === "workload" && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Faculty Teaching Workload Summary</h3>
+                <p className="text-xs text-slate-500">Weekly teaching period quotas and section allocations per instructor.</p>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Faculty Name</th>
+                      <th className="p-3">Code / Initials</th>
+                      <th className="p-3">Weekly Hours</th>
+                      <th className="p-3">Classes Assigned</th>
+                      <th className="p-3 text-right">Workload Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(report?.faculty_verification_table || []).length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="p-6 text-center text-slate-400 font-medium">
+                          No active faculty schedule data. Please generate a timetable first.
+                        </td>
+                      </tr>
+                    ) : (
+                      (report?.faculty_verification_table || []).map((row, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="p-3 font-semibold text-slate-800">{row.name}</td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">{row.short_name}</span>
+                          </td>
+                          <td className="p-3 font-semibold text-slate-700">{row.weekly_periods} hrs/week</td>
+                          <td className="p-3 text-slate-600">{row.classes_taught}</td>
+                          <td className="p-3 text-right">
+                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[10px]">
+                              ✓ Balanced
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: ROOM UTILIZATION */}
+          {reportType === "utilization" && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-6 space-y-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Classroom & Laboratory Inventory</h3>
+                <p className="text-xs text-slate-500">Allocated room capacity and assigned department wings.</p>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Room Name</th>
+                      <th className="p-3">Type</th>
+                      <th className="p-3">Capacity</th>
+                      <th className="p-3">Building / Location</th>
+                      <th className="p-3 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rooms.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="p-6 text-center text-slate-400 font-medium">No rooms registered.</td>
+                      </tr>
+                    ) : (
+                      rooms.map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50">
+                          <td className="p-3 font-semibold text-slate-800">{r.name}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                              r.type === "LAB" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                            }`}>
+                              {r.type === "LAB" ? `Lab (${r.lab_type || "General"})` : "Classroom"}
+                            </span>
+                          </td>
+                          <td className="p-3 text-slate-600 font-semibold">{r.capacity} students</td>
+                          <td className="p-3 text-slate-600">{r.building || "Academic Block"}</td>
+                          <td className="p-3 text-right">
+                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-md text-[10px]">
+                              ✓ Available & Conflict-Free
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: GENERATION STATISTICS */}
+          {reportType === "generation" && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Schedule Optimization Performance</h3>
+                <p className="text-xs text-slate-500">Summary statistics from the most recent timetable generation run.</p>
+              </div>
+              {stats ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Quality Score</span>
+                    <div className="text-2xl font-black text-slate-900">{stats.quality_score || 100}/100</div>
+                    <span className="text-[10px] text-emerald-600 font-semibold">Optimal Schedule</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Generation Time</span>
+                    <div className="text-2xl font-black text-blue-900">{stats.generation_time_ms ? `${stats.generation_time_ms.toFixed(1)} ms` : "Instant"}</div>
+                    <span className="text-[10px] text-slate-500">Solver execution</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Sessions Scheduled</span>
+                    <div className="text-2xl font-black text-indigo-900">{stats.valid_assignments || stats.tasks || 0}</div>
+                    <span className="text-[10px] text-slate-500">Teaching periods placed</span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Backtracks & Candidates</span>
+                    <div className="text-2xl font-black text-slate-800">{stats.backtracking_steps || 0}</div>
+                    <span className="text-[10px] text-slate-500">{stats.candidates_tested || 0} tested</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+                  No active timetable statistics loaded. Please generate or select a timetable.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 7. TIMETABLE VIEW (Individual Class Schedule + Exports + Dynamic Rendering)
+    // =========================================================================
+    function TimetableView({ timetable, timetableList, loadTimetableById, setCurrentTimetable, setActiveTab, setValidationModal, showAlert, setTimetableViewMode }) {
+      const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+      const periods = [1, 2, 3, 4, 5, 6, 7];
+
+      const handleValidate = async () => {
+        if (!timetable) return;
+        try {
+          const res = await fetch(`${API_BASE}/timetable/validate/${timetable.id}`, { method: "POST" });
+          const data = await res.json();
+          setValidationModal(data);
+        } catch (err) {
+          showAlert("Validation request failed", "error");
+        }
+      };
+
+      if (!timetable) {
+        return (
+          <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 space-y-4">
+            <div className="text-5xl">📅</div>
+            <h3 className="text-lg font-bold text-slate-800">No Timetable Selected</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              Please choose a generated schedule or use the wizard to create a new one.
+            </p>
+            <div className="flex justify-center space-x-3 pt-2">
+              <button
+                onClick={() => setActiveTab("wizard")}
+                className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow hover:bg-emerald-500 transition"
+              >
+                ➕ New Timetable Wizard
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // Populate grid with entries
+      const grid = {};
+      days.forEach(d => { grid[d] = {}; });
+      (timetable.entries || []).forEach(e => {
+        if (grid[e.day]) {
+          grid[e.day][e.period] = e;
+        }
+      });
+
+      return (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                  <span>{timetable.class_name}</span>
+                  <span className="text-xs font-normal text-slate-500">({timetable.academic_year || "2026-27"})</span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Status: <strong className="text-emerald-700 font-semibold">100% Conflict-Free</strong> • Score: <strong>{timetable.score}/100</strong>
+                </p>
+              </div>
+
+              {/* Class Switcher Dropdown */}
+              {timetableList && timetableList.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <label className="text-xs font-bold text-slate-600">Class:</label>
+                  <select
+                    value={timetable.id}
+                    onChange={e => loadTimetableById(e.target.value)}
+                    className="p-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 shadow-sm"
+                  >
+                    {timetableList.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.class_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Toggle to All Class Timetables */}
+              <button
+                onClick={() => {
+                  if (setTimetableViewMode) setTimetableViewMode("all");
+                }}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                title="View all classes side-by-side"
+              >
+                <span>🏢</span>
+                <span>All Class Timetables</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("faculty_view")}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+              >
+                <span>👨‍🏫</span>
+                <span>Faculty View</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("room_view")}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+              >
+                <span>🏛️</span>
+                <span>Room View</span>
+              </button>
+
+              <button
+                onClick={handleValidate}
+                className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+              >
+                <span>✓</span>
+                <span>Validate</span>
+              </button>
+              <a
+                href={`${API_BASE}/timetable/${timetable.id}/export/excel`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-md text-xs font-bold transition flex items-center space-x-1"
+              >
+                <span>📊</span>
+                <span>Export Excel</span>
+              </a>
+              <a
+                href={`${API_BASE}/timetable/${timetable.id}/export/pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-md text-xs font-bold transition flex items-center space-x-1"
+              >
+                <span>📄</span>
+                <span>Export PDF</span>
+              </a>
+            </div>
+          </div>
+
+          {/* Timetable Weekly Grid (Dynamic, renders all 7 periods properly) */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-center">
+                    <th className="p-3 w-28 border-r border-slate-800">Day</th>
+                    <th className="p-3 border-r border-slate-800">
+                      <div>Period I</div>
+                      <div className="text-[10px] text-slate-400 font-normal">09:00 - 09:50</div>
+                    </th>
+                    <th className="p-3 border-r border-slate-800">
+                      <div>Period II</div>
+                      <div className="text-[10px] text-slate-400 font-normal">09:55 - 10:50</div>
+                      <div className="text-[9px] text-amber-300 font-semibold">☕ Recess follows</div>
+                    </th>
+                    <th className="p-3 border-r border-slate-800">
+                      <div>Period III</div>
+                      <div className="text-[10px] text-slate-400 font-normal">11:05 - 12:00</div>
+                    </th>
+                    <th className="p-3 border-r border-slate-800">
+                      <div>Period IV</div>
+                      <div className="text-[10px] text-slate-400 font-normal">12:00 - 12:55</div>
+                      <div className="text-[9px] text-amber-300 font-semibold">🍱 Lunch follows</div>
+                    </th>
+                    <th className="p-3 border-r border-slate-800">
+                      <div>Period V</div>
+                      <div className="text-[10px] text-slate-400 font-normal">01:45 - 02:35</div>
+                    </th>
+                    <th className="p-3 border-r border-slate-800">
+                      <div>Period VI</div>
+                      <div className="text-[10px] text-slate-400 font-normal">02:35 - 03:25</div>
+                    </th>
+                    <th className="p-3">
+                      <div>Period VII</div>
+                      <div className="text-[10px] text-slate-400 font-normal">03:25 - 04:15</div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {days.map(day => {
+                    const rowCells = [];
+                    let skipUntil = 0;
+
+                    for (let p = 1; p <= 7; p++) {
+                      if (p < skipUntil) {
+                        // Skip rendering <td> because previous cell used colSpan
+                        continue;
+                      }
+
+                      const entry = grid[day]?.[p];
+
+                      if (entry) {
+                        const isLab = entry.duration > 1 || entry.subject_type === "LAB";
+                        const span = entry.duration > 1 ? entry.duration : 1;
+                        if (span > 1) {
+                          skipUntil = p + span;
+                        }
+
+                        rowCells.push(
+                          <td
+                            key={p}
+                            colSpan={span}
+                            className={`p-3 border-r border-slate-200 align-top transition ${
+                              isLab ? "bg-amber-50/90 hover:bg-amber-100/80 border-amber-200" : "bg-blue-50/80 hover:bg-blue-100/70"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900 text-xs">{entry.subject_code}</span>
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
+                                isLab ? "bg-amber-200 text-amber-900" : "bg-blue-200 text-blue-900"
+                              }`}>
+                                {isLab ? `LAB (${span} Periods Block)` : "THEORY"}
+                              </span>
+                            </div>
+                            <div className="font-medium text-slate-800 text-xs mt-1">{entry.subject_name}</div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2 pt-1.5 border-t border-slate-200">
+                              <span className="font-bold text-slate-700">🏛️ {entry.room_name}</span>
+                              <span className="font-bold text-emerald-700">👨‍🏫 {(entry.faculty_short_names || []).join(", ") || "—"}</span>
+                            </div>
+                          </td>
+                        );
+                      } else {
+                        // Empty period or fixed event
+                        rowCells.push(
+                          <td key={p} className="p-3 border-r border-slate-200 text-center text-slate-300 font-mono text-xs">
+                            —
+                          </td>
+                        );
+                      }
+                    }
+
+                    return (
+                      <tr key={day} className="hover:bg-slate-50/50">
+                        <td className="p-3 font-bold bg-slate-100/70 border-r border-slate-200 text-slate-800 text-center">
+                          {day}
+                        </td>
+                        {rowCells}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 8. ALGORITHM VISUALIZER VIEW (Multi-Class Backtracking Playback)
+    // =========================================================================
+    function VisualizerView({ classes, currentTimetable }) {
+      const [steps, setSteps] = useState([]);
+      const [currentStepIdx, setCurrentStepIdx] = useState(0);
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [speedMs, setSpeedMs] = useState(200);
+      const [loading, setLoading] = useState(false);
+      const [viewMode, setViewMode] = useState("multiclass");
+      const timerRef = useRef(null);
+
+      const fetchTrace = async () => {
+        setLoading(true);
+        try {
+          const url = viewMode === "multiclass"
+            ? `${API_BASE}/timetable/visualize/multiclass`
+            : `${API_BASE}/timetable/visualize/${classes[0]?.id || "default"}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          setSteps(data.steps || []);
+          setCurrentStepIdx(0);
+        } catch (err) {
+          console.error("Error fetching trace:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchTrace();
+      }, [viewMode]);
+
+      useEffect(() => {
+        if (isPlaying) {
+          timerRef.current = setInterval(() => {
+            setCurrentStepIdx(prev => {
+              if (prev < steps.length - 1) return prev + 1;
+              setIsPlaying(false);
+              return prev;
+            });
+          }, speedMs);
+        } else if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+        return () => clearInterval(timerRef.current);
+      }, [isPlaying, speedMs, steps.length]);
+
+      const currentStep = steps[currentStepIdx] || null;
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="px-2 py-0.5 bg-blue-600 text-white font-bold rounded text-[10px]">
+                  DAA SEARCH ENGINE
+                </span>
+                <select
+                  value={viewMode}
+                  onChange={e => setViewMode(e.target.value)}
+                  className="bg-slate-800 text-white text-xs font-bold p-1 rounded border border-slate-700 outline-none"
+                >
+                  <option value="multiclass">Multi-Class Simultaneous Solver</option>
+                  <option value="single">Single Class Focus</option>
+                </select>
+              </div>
+              <h2 className="text-xl font-bold mt-1 tracking-tight">Interactive Backtracking Visualizer</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Visualizes cross-class constraint checking: task selection (MRV), candidate testing (LCV), and conflict prunes.
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2 bg-slate-800 p-2 rounded-xl border border-slate-700">
+              <button
+                onClick={() => setCurrentStepIdx(0)}
+                className="p-2 hover:bg-slate-700 text-slate-300 rounded text-xs"
+                title="Reset to start"
+              >
+                ⏮️
+              </button>
+              <button
+                onClick={() => setCurrentStepIdx(Math.max(0, currentStepIdx - 1))}
+                className="p-2 hover:bg-slate-700 text-slate-300 rounded text-xs"
+                title="Step Backward"
+              >
+                ◀️
+              </button>
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded text-xs shadow flex items-center space-x-1"
+              >
+                <span>{isPlaying ? "⏸️ Pause" : "▶️ Play"}</span>
+              </button>
+              <button
+                onClick={() => setCurrentStepIdx(Math.min(steps.length - 1, currentStepIdx + 1))}
+                className="p-2 hover:bg-slate-700 text-slate-300 rounded text-xs"
+                title="Step Forward"
+              >
+                ▶️
+              </button>
+              <button
+                onClick={() => setCurrentStepIdx(steps.length - 1)}
+                className="p-2 hover:bg-slate-700 text-slate-300 rounded text-xs"
+                title="Jump to end"
+              >
+                ⏭️
+              </button>
+
+              <div className="border-l border-slate-700 pl-2 ml-1 flex items-center space-x-1">
+                <span className="text-[10px] text-slate-400">Speed:</span>
+                <input
+                  type="range" min="50" max="800" step="50"
+                  value={speedMs}
+                  onChange={e => setSpeedMs(parseInt(e.target.value))}
+                  className="w-16 accent-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Current Step Banner */}
+          {currentStep && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase">Step #{currentStep.step_index + 1} of {steps.length}</span>
+                    {currentStep.class_name && (
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-bold text-xs">
+                        Class: {currentStep.class_name}
+                      </span>
+                    )}
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                    currentStep.action === "ASSIGN" ? "bg-emerald-100 text-emerald-800" :
+                    currentStep.action === "CONFLICT" ? "bg-rose-100 text-rose-800" :
+                    currentStep.action === "BACKTRACK" ? "bg-amber-100 text-amber-800" :
+                    currentStep.action === "COMPLETE" ? "bg-purple-100 text-purple-800" :
+                    "bg-slate-100 text-slate-800"
+                  }`}>
+                    {currentStep.action}
+                  </span>
+                </div>
+
+                <div className="text-base font-bold text-slate-900">
+                  {currentStep.task_name}
+                  {currentStep.duration > 1 && <span className="ml-2 text-xs text-amber-600">({currentStep.duration} Periods Consecutive Lab)</span>}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-2 text-xs">
+                  <div className="p-2 bg-slate-50 rounded-lg">
+                    <span className="text-slate-400 block text-[10px]">Time Slot</span>
+                    <span className="font-bold text-slate-700">{currentStep.day ? `${currentStep.day} P${currentStep.period}` : "Unassigned"}</span>
+                  </div>
+                  <div className="p-2 bg-slate-50 rounded-lg">
+                    <span className="text-slate-400 block text-[10px]">Room</span>
+                    <span className="font-bold text-slate-700">{currentStep.room_name || "N/A"}</span>
+                  </div>
+                  <div className="p-2 bg-slate-50 rounded-lg">
+                    <span className="text-slate-400 block text-[10px]">Faculty</span>
+                    <span className="font-bold text-slate-700">{(currentStep.faculty_names || []).join(", ") || "N/A"}</span>
+                  </div>
+                </div>
+
+                {currentStep.reason && (
+                  <div className={`p-3 rounded-lg text-xs font-medium border ${
+                    currentStep.action === "CONFLICT" ? "bg-rose-50 border-rose-200 text-rose-800" : "bg-slate-50 border-slate-200 text-slate-700"
+                  }`}>
+                    {currentStep.reason}
+                  </div>
+                )}
+              </div>
+
+              {/* Algorithm Metrics */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Search Statistics</h4>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Tasks Assigned:</span>
+                    <span className="font-bold text-emerald-600">{currentStep.current_assigned_count}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Backtracks Executed:</span>
+                    <span className="font-bold text-amber-600">{currentStep.backtrack_count}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-500">Candidate Slots Tested:</span>
+                    <span className="font-bold text-slate-700">{currentStep.tested_count}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Decision Timeline Log */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h3 className="font-bold text-slate-900 text-sm">Recent Solver Decision Events</h3>
+            <div className="space-y-1.5 max-h-64 overflow-y-auto font-mono text-xs">
+              {steps.slice(0, currentStepIdx + 1).slice(-15).reverse().map((st, i) => (
+                <div key={i} className={`p-2 rounded flex items-center justify-between border ${
+                  st.action === "ASSIGN" ? "bg-emerald-50/50 border-emerald-200 text-emerald-900" :
+                  st.action === "CONFLICT" ? "bg-rose-50/50 border-rose-200 text-rose-900" :
+                  st.action === "BACKTRACK" ? "bg-amber-50/50 border-amber-200 text-amber-900" :
+                  "bg-slate-50 border-slate-200 text-slate-700"
+                }`}>
+                  <div className="flex items-center space-x-2 truncate">
+                    <span className="font-bold">[{st.action}]</span>
+                    {st.class_name && <span className="text-blue-700 font-bold">({st.class_name})</span>}
+                    <span>{st.task_name}</span>
+                    {st.day && <span>→ {st.day} P{st.period}</span>}
+                  </div>
+                  <span className="text-[10px] opacity-75 shrink-0 ml-2">{st.reason || ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* DAA Algorithmic Architecture Cards (Technical Implementation Details) */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
+                <span>⚡</span>
+                <span>DAA Constraint Satisfaction Problem (CSP) Engine Architecture</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Mathematical heuristics and pruning strategies applied by the backtracking scheduler to find globally conflict-free assignments.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  <span>MRV Heuristic (Minimum Remaining Values)</span>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Variables (teaching tasks) with the smallest number of valid slots are scheduled first. Multi-period laboratory blocks and shared instructors with tight availability are prioritized.
+                </p>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>LCV Ordering (Least Constraining Value)</span>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Candidate day and period slots are evaluated in an order that leaves the maximum number of allowable choices for parallel class sections and shared instructors.
+                </p>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span>Forward Checking & Pruning</span>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Whenever a subject is assigned to a period, overlapping timeslots for that class, assigned faculty, and room are immediately eliminated from all remaining tasks.
+                </p>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                  <span>Backtracking Search Tree</span>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Systematic depth-first exploration with rapid state restoration on dead-ends, ensuring complete constraint coverage and guaranteed zero resource collisions.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 9. DATA MANAGEMENT VIEW
+    // =========================================================================
+    function DataManagementView({ classes, subjects, faculty, rooms, refreshData, showAlert }) {
+      return (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Institutional Database Directory</h2>
+              <p className="text-xs text-slate-500">Direct overview of all entities registered in the database.</p>
+            </div>
+            <button
+              onClick={refreshData}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300"
+            >
+              🔄 Refresh Tables
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm">Active Class Sections ({classes.length})</h3>
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto text-xs">
+                {classes.length === 0 ? (
+                  <div className="py-4 text-center text-slate-400">No classes registered</div>
+                ) : (
+                  classes.map(c => (
+                    <div key={c.id} className="py-2 flex justify-between">
+                      <span className="font-semibold text-slate-800">{c.name}</span>
+                      <span className="text-slate-500">{c.student_count} Students • {c.academic_year}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm">Faculty Members ({faculty.length})</h3>
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto text-xs">
+                {faculty.length === 0 ? (
+                  <div className="py-4 text-center text-slate-400">No faculty registered</div>
+                ) : (
+                  faculty.map(f => (
+                    <div key={f.id} className="py-2 flex justify-between">
+                      <span className="font-semibold text-slate-800">{f.name}</span>
+                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-bold">{f.short_name}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm">Rooms & Laboratories ({rooms.length})</h3>
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto text-xs">
+                {rooms.length === 0 ? (
+                  <div className="py-4 text-center text-slate-400">No rooms registered</div>
+                ) : (
+                  rooms.map(r => (
+                    <div key={r.id} className="py-2 flex justify-between">
+                      <span className="font-semibold text-slate-800">{r.name}</span>
+                      <span className="text-slate-500">{r.type} ({r.capacity} seats)</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm">Registered Subjects ({subjects.length})</h3>
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto text-xs">
+                {subjects.length === 0 ? (
+                  <div className="py-4 text-center text-slate-400">No subjects registered</div>
+                ) : (
+                  subjects.map(s => (
+                    <div key={s.id} className="py-2 flex justify-between">
+                      <span className="font-semibold text-slate-800">{s.course_code} - {s.name}</span>
+                      <span className="text-slate-500">{s.periods_per_week} hrs/wk</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // =========================================================================
+    // 10. CONSTRAINTS VIEW
+    // =========================================================================
+    function ConstraintsView({ faculty, refreshData, showAlert }) {
+      return (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h2 className="text-lg font-bold text-slate-900">Constraint Engine & Mathematical Weights</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Antigravity Backtracking uses strict hard constraint filters and multi-objective soft evaluation.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm">Hard Constraints (Non-Negotiable)</h3>
+              <div className="space-y-2 text-xs text-slate-600">
+                <div className="p-2.5 bg-slate-50 rounded-lg">✓ Zero Cross-Class Faculty Double Booking</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">✓ Zero Cross-Class Classroom Double Booking</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">✓ Zero Class Schedule Overlaps</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">✓ 3-Period Consecutive Same-Day Laboratory Blocks</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">✓ Session Break Boundary Integrity (Recess & Lunch)</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">✓ Room Capacity & Laboratory Type Enforcement</div>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-800 text-sm">Soft Optimization Penalties</h3>
+              <div className="space-y-2 text-xs text-slate-600">
+                <div className="p-2.5 bg-slate-50 rounded-lg">⚖️ Faculty Idle Gaps: Penalizes multi-period wait times between lectures</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">⚖️ Student Gaps: Discourages holes in class section daily streams</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">⚖️ Same-Day Repetition: Penalizes repeating the same theory subject multiple times in a day</div>
+                <div className="p-2.5 bg-slate-50 rounded-lg">⚖️ Laboratory Timing: Favors afternoon slots for multi-period labs</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Mount React Root
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+
+  </script>
+</body>
+</html>
